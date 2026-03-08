@@ -1,5 +1,6 @@
-import { Component, ElementRef, OnDestroy, signal, viewChild } from '@angular/core';
+import { Component, ElementRef, OnDestroy, inject, signal, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { RouterLink } from '@angular/router';
 
 import { BoardEventDialogComponent } from '../components/board-event-dialog.component';
@@ -38,7 +39,7 @@ const PLAYER_CHIP_COLORS = ['#ff3b30', '#34c759', '#007aff', '#ffcc00', '#af52de
 
 @Component({
   selector: 'app-game-page',
-  imports: [CommonModule, RouterLink, BoardEventDialogComponent],
+  imports: [CommonModule, RouterLink, BoardEventDialogComponent, MatSnackBarModule],
   templateUrl: './game.page.html',
   styleUrl: './game.page.scss'
 })
@@ -66,6 +67,7 @@ export class GamePage implements OnDestroy {
   boardGeometryArtifactPath = BOARD_GEOMETRY_ARTIFACT_PATH;
 
   private readonly boardSurface = viewChild<ElementRef<HTMLDivElement>>('boardSurface');
+  private readonly snackBar = inject(MatSnackBar);
   private activeGeometryInteraction: GeometryInteractionState | null = null;
   private readonly onWindowPointerMove = (event: PointerEvent): void => {
     this.updateGeometryInteraction(event);
@@ -598,6 +600,38 @@ export class GamePage implements OnDestroy {
     }
 
     this.actionLog.set([...messages.reverse(), ...this.actionLog()].slice(0, 8));
+    this.showSnackbars(events);
+  }
+
+  private showSnackbars(events: ActivityEvent[]): void {
+    for (const event of events) {
+      const snackbar = this.snackbarForEvent(event);
+      if (!snackbar) {
+        continue;
+      }
+
+      this.snackBar.open(snackbar.message, undefined, {
+        duration: 2400,
+        horizontalPosition: 'end',
+        verticalPosition: 'top'
+      });
+    }
+  }
+
+  private snackbarForEvent(event: ActivityEvent): { message: string } | null {
+    if (event.type === 'player_received' && this.isOwnSeat(event.seatIndex)) {
+      return { message: `+${event.amount}` };
+    }
+
+    if (event.type === 'player_paid' && this.isOwnSeat(event.seatIndex)) {
+      return { message: `-${event.amount}` };
+    }
+
+    if (event.type === 'property_bought' && this.isOwnSeat(event.ownerSeat)) {
+      return { message: `${this.i18n.t('bought_prefix')} ${event.tileName}` };
+    }
+
+    return null;
   }
 
   private activityMessage(event: ActivityEvent): string {
@@ -776,7 +810,7 @@ export class GamePage implements OnDestroy {
     const now = context.currentTime + 0.01;
     const notes = kind === 'gain' ? [523.25, 659.25] : [349.23, 293.66];
     notes.forEach((frequency, index) => {
-      this.scheduleTone(context, now + index * 0.08, frequency, 0.12, kind === 'gain' ? 'sine' : 'triangle', 0.018);
+      this.scheduleTone(context, now + index * 0.08, frequency, 0.12, kind === 'gain' ? 'sine' : 'triangle', 0.035);
     });
   }
 
@@ -788,7 +822,7 @@ export class GamePage implements OnDestroy {
 
     const now = context.currentTime + 0.01;
     [392, 523.25, 659.25].forEach((frequency, index) => {
-      this.scheduleTone(context, now + index * 0.07, frequency, 0.13, 'sine', 0.02);
+      this.scheduleTone(context, now + index * 0.07, frequency, 0.13, 'sine', 0.04);
     });
   }
 

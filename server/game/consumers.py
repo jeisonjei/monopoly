@@ -110,6 +110,27 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             await player.asave(update_fields=["pending_event_tile_index", "pending_event_kind", "pending_event_card_id"])
             return create_special_card_payload(landed_tile)
 
+        if landed_tile_definition["kind"] == "go_to_jail":
+            player.position_index = 10
+            player.in_jail = True
+            player.jail_turns_left = 3
+            player.pending_buy_tile_index = None
+            player.pending_event_tile_index = None
+            player.pending_event_kind = None
+            player.pending_event_card_id = None
+            await player.asave(
+                update_fields=[
+                    "position_index",
+                    "in_jail",
+                    "jail_turns_left",
+                    "pending_buy_tile_index",
+                    "pending_event_tile_index",
+                    "pending_event_kind",
+                    "pending_event_card_id",
+                ]
+            )
+            return None
+
         return None
 
     async def _resolve_special_railroad_or_utility(self, game: Game, player: PlayerState, action_kind: str) -> None:
@@ -160,7 +181,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
         game = await Game.get_singleton_async()
         await PlayerState.mark_connected_async(game_id=game.id, user_id=user.id)
         await self._normalize_turn(game.id)
-        players = await PlayerState.list_for_game_async(game_id=game.id)
+        players = await PlayerState.list_connected_for_game_async(game_id=game.id)
         await self.channel_layer.group_send(
             self.group_name,
             {
@@ -177,7 +198,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             game = await Game.get_singleton_async()
             await PlayerState.mark_disconnected_async(game_id=game.id, user_id=user.id)
             await self._normalize_turn(game.id)
-            players = await PlayerState.list_for_game_async(game_id=game.id)
+            players = await PlayerState.list_connected_for_game_async(game_id=game.id)
             await self.channel_layer.group_send(
                 self.group_name,
                 {
@@ -265,7 +286,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
         game = await Game.get_singleton_async()
         await self._normalize_turn(game.id)
         game = await Game.get_singleton_async()
-        players = await PlayerState.list_for_game_async(game_id=game.id)
+        players = await PlayerState.list_connected_for_game_async(game_id=game.id)
         properties = [
             p async for p in PropertyState.objects.filter(game_id=game.id).order_by("tile_index").aiterator()
         ]
@@ -352,7 +373,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             },
         )
 
-        players = await PlayerState.list_for_game_async(game_id=game.id)
+        players = await PlayerState.list_connected_for_game_async(game_id=game.id)
         await self.channel_layer.group_send(
             self.group_name,
             {
@@ -420,7 +441,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
                     self._special_card_event(follow_up_payload, player.seat_index, game.state_version),
                 )
         elif action_kind == "money_from_each_player":
-            other_players = [p for p in await PlayerState.list_for_game_async(game_id=game.id) if p.id != player.id and p.connection_count > 0]
+            other_players = [p for p in await PlayerState.list_connected_for_game_async(game_id=game.id) if p.id != player.id]
             total = 0
             for other in other_players:
                 payment = int(action_value)
@@ -430,7 +451,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             player.money += total
             await player.asave(update_fields=["money"])
         elif action_kind == "money_to_each_player":
-            other_players = [p for p in await PlayerState.list_for_game_async(game_id=game.id) if p.id != player.id and p.connection_count > 0]
+            other_players = [p for p in await PlayerState.list_connected_for_game_async(game_id=game.id) if p.id != player.id]
             total = 0
             for other in other_players:
                 payment = int(action_value)
@@ -476,7 +497,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
         game.state_version += 1
         await game.asave(update_fields=["state_version"])
 
-        players = await PlayerState.list_for_game_async(game_id=game.id)
+        players = await PlayerState.list_connected_for_game_async(game_id=game.id)
         await self.channel_layer.group_send(
             self.group_name,
             {
@@ -537,7 +558,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
         game.state_version += 1
         await game.asave(update_fields=["state_version"])
 
-        players = await PlayerState.list_for_game_async(game_id=game.id)
+        players = await PlayerState.list_connected_for_game_async(game_id=game.id)
         await self.channel_layer.group_send(
             self.group_name,
             {
@@ -641,7 +662,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             ]
         )
 
-        players = await PlayerState.list_for_game_async(game_id=game.id)
+        players = await PlayerState.list_connected_for_game_async(game_id=game.id)
         await self.channel_layer.group_send(
             self.group_name,
             {

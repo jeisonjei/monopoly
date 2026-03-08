@@ -27,14 +27,19 @@ class GameStateView(APIView):
 
             player = PlayerState.objects.create(game=game, user=request.user, seat_index=seat)
 
-        players = PlayerState.objects.select_related("user").filter(
+        all_players = PlayerState.objects.select_related("user").filter(
             game=game,
         ).order_by("seat_index")
-        occupied = list(players.values_list("seat_index", flat=True))
+        occupied = list(all_players.values_list("seat_index", flat=True))
         if occupied and game.turn_seat_index not in occupied:
             game.turn_seat_index = occupied[0]
             game.state_version += 1
             game.save(update_fields=["turn_seat_index", "state_version", "updated_at"])
+        visible_player_ids = set(
+            PlayerState.objects.filter(game=game, connection_count__gt=0).values_list("id", flat=True)
+        )
+        visible_player_ids.add(player.id)
+        players = [p for p in all_players if p.id in visible_player_ids]
         properties = PropertyState.objects.filter(game=game).order_by("tile_index")
         return Response(
             {

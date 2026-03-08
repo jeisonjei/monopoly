@@ -109,6 +109,16 @@ class PlayerState(models.Model):
         ]
 
     @classmethod
+    async def list_connected_for_game_async(cls, game_id: int):
+        return [
+            p
+            async for p in cls.objects.select_related("user")
+            .filter(game_id=game_id, connection_count__gt=0)
+            .order_by("seat_index")
+            .aiterator()
+        ]
+
+    @classmethod
     async def get_or_create_for_user_async(cls, game_id: int, user_id: int):
         existing = await cls.get_for_user_async(game_id=game_id, user_id=user_id)
         if existing is not None:
