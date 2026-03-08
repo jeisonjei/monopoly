@@ -13,6 +13,14 @@ class GameStateView(APIView):
         if game is None:
             game = Game.objects.create()
 
+        inactive_players = list(
+            PlayerState.objects.filter(game=game, connection_count=0).exclude(user=request.user)
+        )
+        if inactive_players:
+            inactive_seats = [player.seat_index for player in inactive_players]
+            PropertyState.objects.filter(game=game, owner_seat_index__in=inactive_seats).update(owner_seat_index=None)
+            PlayerState.objects.filter(id__in=[player.id for player in inactive_players]).delete()
+
         player = PlayerState.objects.filter(game=game, user=request.user).first()
         if player is None:
             taken = set(PlayerState.objects.filter(game=game).values_list("seat_index", flat=True))

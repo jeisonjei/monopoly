@@ -7,6 +7,26 @@
   --opponent-panel-min-height: 0px;
 }
 
+:host ::ng-deep .mat-mdc-snack-bar-container.game-snackbar {
+  margin: 0 16px 16px 0;
+}
+
+:host ::ng-deep .mat-mdc-snack-bar-container.game-snackbar .mdc-snackbar__surface {
+  min-width: 0;
+  border: 1px solid rgba(108, 124, 145, 0.36);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(241, 236, 228, 0.96));
+  box-shadow: 0 12px 28px rgba(36, 44, 55, 0.18);
+}
+
+:host ::ng-deep .mat-mdc-snack-bar-container.game-snackbar .mdc-snackbar__label {
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #2f2a33;
+}
+
 .game {
   padding: 16px;
   max-height: 95vh;

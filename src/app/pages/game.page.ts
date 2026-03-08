@@ -107,12 +107,19 @@ export class GamePage implements OnDestroy {
       this.players.set(state.players ?? []);
       this.properties.set(state.properties ?? []);
       this.actionLog.set([]);
+      if (this.wsStatus() === 'disconnected') {
+        this.connect();
+      }
     } catch {
       this.error.set(this.i18n.t('failed_to_load_game_state'));
     }
   }
 
   connect(): void {
+    if (this.wsStatus() === 'connecting' || this.wsStatus() === 'connected') {
+      return;
+    }
+
     this.ensureAudioContext();
     this.error.set(null);
     const token = this.auth.accessToken();
@@ -612,8 +619,9 @@ export class GamePage implements OnDestroy {
 
       this.snackBar.open(snackbar.message, undefined, {
         duration: 2400,
+        panelClass: ['game-snackbar'],
         horizontalPosition: 'end',
-        verticalPosition: 'top'
+        verticalPosition: 'bottom'
       });
     }
   }

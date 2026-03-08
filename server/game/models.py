@@ -156,6 +156,23 @@ class PlayerState(models.Model):
 
         await _decrement()
 
+    @classmethod
+    async def cleanup_inactive_for_game_async(cls, game_id: int, *, keep_user_id: int | None = None):
+        @sync_to_async
+        def _cleanup():
+            with transaction.atomic():
+                inactive_players = list(
+                    cls.objects.filter(game_id=game_id, connection_count=0).exclude(user_id=keep_user_id)
+                )
+                if not inactive_players:
+                    return
+
+                inactive_seats = [player.seat_index for player in inactive_players]
+                PropertyState.objects.filter(game_id=game_id, owner_seat_index__in=inactive_seats).update(owner_seat_index=None)
+                cls.objects.filter(id__in=[player.id for player in inactive_players]).delete()
+
+        await _cleanup()
+
 
 class PropertyState(models.Model):
     game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name="properties")

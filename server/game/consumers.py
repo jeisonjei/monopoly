@@ -174,6 +174,9 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             await self.close(code=4401)
             return
 
+        game = await Game.get_singleton_async()
+        await PlayerState.cleanup_inactive_for_game_async(game_id=game.id, keep_user_id=user.id)
+
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
 
@@ -197,6 +200,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
         if user is not None and not user.is_anonymous:
             game = await Game.get_singleton_async()
             await PlayerState.mark_disconnected_async(game_id=game.id, user_id=user.id)
+            await PlayerState.cleanup_inactive_for_game_async(game_id=game.id)
             await self._normalize_turn(game.id)
             players = await PlayerState.list_connected_for_game_async(game_id=game.id)
             await self.channel_layer.group_send(
