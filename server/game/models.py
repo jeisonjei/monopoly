@@ -1,6 +1,7 @@
 from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.db import models, transaction
+from django.db.models import F
 from django.utils import timezone
 
 
@@ -49,6 +50,7 @@ class PlayerState(models.Model):
     game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name="players")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     seat_index = models.PositiveSmallIntegerField()
+    connection_count = models.PositiveSmallIntegerField(default=0)
     money = models.IntegerField(default=1500)
     position_index = models.PositiveSmallIntegerField(default=0)
     pending_buy_tile_index = models.PositiveSmallIntegerField(null=True, blank=True)
@@ -74,6 +76,7 @@ class PlayerState(models.Model):
             "user_id": self.user_id,
             "username": self.user.username,
             "seat_index": self.seat_index,
+            "is_connected": bool(self.connection_count),
             "money": self.money,
             "position_index": self.position_index,
             "pending_buy_tile_index": self.pending_buy_tile_index,
@@ -126,6 +129,22 @@ class PlayerState(models.Model):
                 return None
 
         return await _create_seat()
+
+    @classmethod
+    async def mark_connected_async(cls, game_id: int, user_id: int):
+        await cls.objects.filter(game_id=game_id, user_id=user_id).aupdate(connection_count=F("connection_count") + 1)
+
+    @classmethod
+    async def mark_disconnected_async(cls, game_id: int, user_id: int):
+        @sync_to_async
+        def _decrement():
+            player = cls.objects.filter(game_id=game_id, user_id=user_id).first()
+            if player is None:
+                return
+            player.connection_count = max(0, int(player.connection_count) - 1)
+            player.save(update_fields=["connection_count", "updated_at"])
+
+        await _decrement()
 
 
 class PropertyState(models.Model):

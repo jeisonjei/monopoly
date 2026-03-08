@@ -274,7 +274,7 @@ export class GamePage implements OnDestroy {
       this.hasGameStarted.set(!!ev.game.last_roll_at);
       this.players.set(ev.players ?? []);
       this.properties.set(ev.properties ?? []);
-      this.pushAction('Connected to game room');
+      this.pushAction(this.i18n.t('connected_to_game_room'));
     }
 
     if (ev.type === 'players_updated') {
@@ -575,6 +575,7 @@ export class GamePage implements OnDestroy {
   visiblePlayers(): any[] {
     const players = [...this.players()].sort((a, b) => a.seat_index - b.seat_index);
     const yourSeat = this.yourSeat();
+    const hasConnectionMetadata = players.some((player) => typeof player.is_connected === 'boolean');
     const ownedSeats = new Set(
       this.properties()
         .filter((property) => property.owner_seat_index !== null && property.owner_seat_index !== undefined)
@@ -598,7 +599,7 @@ export class GamePage implements OnDestroy {
         return false;
       }
 
-      return true;
+      return !hasConnectionMetadata;
     });
 
     return visible.length ? visible : players;

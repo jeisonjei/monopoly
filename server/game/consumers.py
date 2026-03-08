@@ -10,7 +10,6 @@ from .models import Game, PlayerState, PropertyState
 class GameConsumer(AsyncJsonWebsocketConsumer):
     group_name = "game"
     board_size = 40
-    active_connections = {}
 
     async def _calculate_property_rent(self, game: Game, tile_index: int, owner_seat_index: int) -> int:
         tile = get_tile_definition(tile_index)
@@ -158,38 +157,40 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
         await self.accept()
 
         await self._ensure_player_seat()
-        self._mark_user_connected(user.id)
         game = await Game.get_singleton_async()
+        await PlayerState.mark_connected_async(game_id=game.id, user_id=user.id)
         await self._normalize_turn(game.id)
+        players = await PlayerState.list_for_game_async(game_id=game.id)
+        await self.channel_layer.group_send(
+            self.group_name,
+            {
+                "type": "players_updated",
+                "players": self._serialize_players(players),
+                "state_version": game.state_version,
+            },
+        )
         await self._send_snapshot()
 
     async def disconnect(self, close_code):
         user = self.scope.get("user")
         if user is not None and not user.is_anonymous:
-            self._mark_user_disconnected(user.id)
             game = await Game.get_singleton_async()
+            await PlayerState.mark_disconnected_async(game_id=game.id, user_id=user.id)
             await self._normalize_turn(game.id)
+            players = await PlayerState.list_for_game_async(game_id=game.id)
+            await self.channel_layer.group_send(
+                self.group_name,
+                {
+                    "type": "players_updated",
+                    "players": self._serialize_players(players),
+                    "state_version": game.state_version,
+                },
+            )
         await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
     @classmethod
-    def _mark_user_connected(cls, user_id: int):
-        cls.active_connections[user_id] = cls.active_connections.get(user_id, 0) + 1
-
-    @classmethod
-    def _mark_user_disconnected(cls, user_id: int):
-        current = cls.active_connections.get(user_id, 0)
-        if current <= 1:
-            cls.active_connections.pop(user_id, None)
-            return
-        cls.active_connections[user_id] = current - 1
-
-    @classmethod
-    def _is_user_connected(cls, user_id: int) -> bool:
-        return cls.active_connections.get(user_id, 0) > 0
-
-    @classmethod
     def _serialize_players(cls, players: list[PlayerState]) -> list[dict]:
-        return [p.to_dict(is_connected=cls._is_user_connected(p.user_id)) for p in players]
+        return [p.to_dict() for p in players]
 
     async def receive_json(self, content, **kwargs):
         msg_type = content.get("type")
@@ -219,7 +220,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
     async def _normalize_turn(self, game_id: int):
         game = await Game.get_singleton_async()
         players = await PlayerState.list_for_game_async(game_id=game_id)
-        occupied = [p.seat_index for p in players if self._is_user_connected(p.user_id)]
+        occupied = [p.seat_index for p in players if p.connection_count > 0]
         if not occupied:
             occupied = [p.seat_index for p in players]
         if not occupied:
@@ -234,7 +235,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
 
     async def _get_next_occupied_seat(self, game_id: int, current_seat_index: int):
         players = await PlayerState.list_for_game_async(game_id=game_id)
-        occupied = sorted(p.seat_index for p in players if self._is_user_connected(p.user_id))
+        occupied = sorted(p.seat_index for p in players if p.connection_count > 0)
         if not occupied:
             occupied = sorted(p.seat_index for p in players)
         if not occupied:

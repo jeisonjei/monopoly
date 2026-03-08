@@ -83,6 +83,7 @@ type TranslationKey =
   | 'no_players_yet'
   | 'activity'
   | 'no_actions_yet'
+  | 'connected_to_game_room'
   | 'login_first'
   | 'failed_to_load_game_state'
   | 'websocket_error'
@@ -192,6 +193,7 @@ const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> = {
     no_players_yet: 'Пока нет игроков',
     activity: 'Активность',
     no_actions_yet: 'Пока нет действий',
+    connected_to_game_room: 'Подключено к игровой комнате',
     login_first: 'Сначала войдите',
     failed_to_load_game_state: 'Не удалось загрузить состояние игры',
     websocket_error: 'Ошибка WebSocket',
@@ -298,6 +300,7 @@ const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> = {
     no_players_yet: 'No players yet',
     activity: 'Activity',
     no_actions_yet: 'No actions yet',
+    connected_to_game_room: 'Connected to game room',
     login_first: 'Login first',
     failed_to_load_game_state: 'Failed to load game state',
     websocket_error: 'WebSocket error',
