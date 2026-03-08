@@ -34,6 +34,8 @@ const BOARD_GEOMETRY_FILE_NAME = 'board-geometry.json';
 const BOARD_GEOMETRY_ARTIFACT_PATH = 'src/app/services/board-geometry.json';
 const BOARD_GEOMETRY_MIN_SIZE_PCT = 2;
 
+const PLAYER_CHIP_COLORS = ['#ff3b30', '#34c759', '#007aff', '#ffcc00', '#af52de', '#ff9500'] as const;
+
 @Component({
   selector: 'app-game-page',
   imports: [CommonModule, RouterLink, BoardEventDialogComponent],
@@ -347,8 +349,62 @@ export class GamePage implements OnDestroy {
   }
 
   seatColor(seatIndex: number): string {
-    const colors = ['#ff3b30', '#34c759', '#007aff', '#ffcc00', '#af52de', '#ff9500'];
-    return colors[((seatIndex ?? 0) % colors.length + colors.length) % colors.length];
+    return PLAYER_CHIP_COLORS[((seatIndex ?? 0) % PLAYER_CHIP_COLORS.length + PLAYER_CHIP_COLORS.length) % PLAYER_CHIP_COLORS.length];
+  }
+
+  playerChipLabel(player: { username?: string | null; seat_index?: number | null }): string {
+    const normalized = (player.username ?? '')
+      .trim()
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .split(' ')
+      .filter(Boolean);
+
+    if (normalized.length >= 2) {
+      return `${normalized[0][0] ?? ''}${normalized[1][0] ?? ''}`.toUpperCase();
+    }
+
+    if (normalized.length === 1) {
+      return normalized[0].slice(0, 2).toUpperCase();
+    }
+
+    return `S${player.seat_index ?? 0}`.slice(0, 2).toUpperCase();
+  }
+
+  playerChipTitle(player: { username?: string | null; seat_index: number; position_index: number }): string {
+    const displayName = player.username?.trim() || `${this.i18n.t('seat')} ${player.seat_index}`;
+    return `${displayName} (${this.i18n.t('seat')} ${player.seat_index}, ${this.i18n.t('tile')} ${player.position_index})`;
+  }
+
+  currentPlayerColor(): string {
+    const seat = this.yourSeat();
+    return this.seatColor(seat ?? 0);
+  }
+
+  topStatusBackground(): string {
+    const color = this.currentPlayerColor();
+    return `linear-gradient(180deg, rgba(255,255,255,0.985), color-mix(in srgb, ${color} 5%, rgba(241, 236, 228, 0.96)))`;
+  }
+
+  topStatusBorderColor(): string {
+    const color = this.currentPlayerColor();
+    return `color-mix(in srgb, ${color} 16%, rgba(94, 115, 140, 0.28))`;
+  }
+
+  tokenShadow(color: string, own = false): string {
+    const ring = own ? 'rgba(255, 214, 10, 0.42)' : 'rgba(255, 255, 255, 0.24)';
+    const glow = own ? `color-mix(in srgb, ${color} 72%, #ffd60a)` : color;
+    return [
+      `0 0 0 ${own ? 4 : 3}px ${ring}`,
+      `0 0 18px color-mix(in srgb, ${glow} 54%, white)`,
+      `0 0 ${own ? 36 : 28}px color-mix(in srgb, ${glow} 28%, transparent)`,
+      '0 10px 20px rgba(0,0,0,0.34)',
+      'inset 0 1px 0 rgba(255,255,255,0.45)'
+    ].join(', ');
+  }
+
+  tokenFilter(color: string, own = false): string {
+    const glow = own ? `color-mix(in srgb, ${color} 72%, #ffd60a)` : color;
+    return `drop-shadow(0 0 ${own ? 12 : 10}px color-mix(in srgb, ${glow} 42%, white))`;
   }
 
   specialCardActionLabel(card: SpecialCardPayload): string {

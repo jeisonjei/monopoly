@@ -5,7 +5,12 @@
       <span class="muted">{{ i18n.t('single_room') }}</span>
     </div>
 
-    <div class="top-status" aria-label="Status Bar">
+    <div
+      class="top-status"
+      aria-label="Status Bar"
+      [style.background]="topStatusBackground()"
+      [style.border-color]="topStatusBorderColor()"
+    >
       <span class="status-pill status-pill-turn" [class.status-pill-turn-active]="isYourTurn()">
         {{ turnStatusText() }}
       </span>
@@ -16,7 +21,6 @@
       <span class="status-pill" *ngIf="yourPlayer() as me">{{ me.money }}</span>
       <span class="status-pill" *ngIf="yourPlayer() as me">{{ statusTileLabel(me.position_index) }}</span>
     </div>
-
     <nav class="top-nav">
       <a routerLink="/login" *ngIf="!auth.isAuthenticated()">{{ i18n.t('login') }}</a>
       <span class="muted top-username" *ngIf="auth.isAuthenticated() && auth.username()">{{ auth.username() }}</span>
@@ -149,9 +153,11 @@
                 [style.left.%]="playerTokenPoint(p.position_index).leftPct"
                 [style.top.%]="playerTokenPoint(p.position_index).topPct"
                 [style.background]="seatColor(p.seat_index)"
-                [title]="'Seat ' + p.seat_index + ' (tile ' + p.position_index + ')'"
+                [style.box-shadow]="tokenShadow(seatColor(p.seat_index), isOwnSeat(p.seat_index))"
+                [style.filter]="tokenFilter(seatColor(p.seat_index), isOwnSeat(p.seat_index))"
+                [title]="playerChipTitle(p)"
               >
-                {{ p.seat_index }}
+                {{ playerChipLabel(p) }}
               </div>
             </div>
 
