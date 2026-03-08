@@ -8,23 +8,25 @@ import { I18nService } from '../services/i18n.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule],
   template: `
-    <div class="board-event-backdrop" *ngIf="open()" (click)="closed.emit()">
+    <div class="board-event-backdrop" *ngIf="open()" (click)="!readonlyMode() && closed.emit()">
       <div
         class="board-event-dialog"
+        [class.board-event-dialog-readonly]="readonlyMode()"
         role="dialog"
         aria-modal="true"
         [attr.aria-label]="title()"
         (click)="$event.stopPropagation()"
       >
         <div class="board-event-kicker" *ngIf="kicker()">{{ kicker() }}</div>
+        <div class="board-event-readonly-badge" *ngIf="readonlyMode()">{{ i18n.t('watching_only') }}</div>
         <h2>{{ title() }}</h2>
         <p>{{ instruction() }}</p>
         <div class="board-event-action" *ngIf="actionLabel()">{{ actionLabel() }}</div>
         <div class="board-event-actions">
-          <button type="button" (click)="actionTaken.emit()" [disabled]="actionPending()">
+          <button type="button" (click)="!readonlyMode() && actionTaken.emit()" [disabled]="readonlyMode() || actionPending()">
             {{ actionPending() ? i18n.t('applying') : actionButtonLabel() }}
           </button>
-          <button type="button" (click)="closed.emit()">{{ i18n.t('cancel') }}</button>
+          <button type="button" (click)="!readonlyMode() && closed.emit()" [disabled]="readonlyMode()">{{ i18n.t('cancel') }}</button>
         </div>
       </div>
     </div>
@@ -54,6 +56,10 @@ import { I18nService } from '../services/i18n.service';
         gap: 14px;
       }
 
+      .board-event-dialog-readonly {
+        opacity: 0.96;
+      }
+
       .board-event-dialog h2 {
         margin: 0;
         font-size: 25px;
@@ -73,6 +79,19 @@ import { I18nService } from '../services/i18n.service';
         letter-spacing: 0.08em;
         text-transform: uppercase;
         color: #4b2da1;
+      }
+
+      .board-event-readonly-badge {
+        justify-self: start;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: #5f5448;
+        background: rgba(255,255,255,0.72);
+        border: 1px solid rgba(94, 115, 140, 0.2);
+        border-radius: 999px;
+        padding: 4px 8px;
       }
 
       .board-event-action {
@@ -138,6 +157,7 @@ export class BoardEventDialogComponent {
   readonly actionLabel = input<string>('');
   readonly actionButtonLabel = input('');
   readonly actionPending = input(false);
+  readonly readonlyMode = input(false);
 
   readonly closed = output<void>();
   readonly actionTaken = output<void>();

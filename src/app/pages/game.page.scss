@@ -29,6 +29,7 @@
   min-width: 0;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 8px 10px;
   border: 1px solid rgba(94, 115, 140, 0.28);
@@ -100,8 +101,8 @@
 }
 
 .status-pill-turn-active {
-  background: rgba(255,255,255,0.72);
-  color: #4c4338;
+  background: rgba(213, 241, 220, 0.88);
+  color: #166344;
 }
 
 .status-bar-turn-owner {
@@ -112,6 +113,37 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.top-activity {
+  margin-left: auto;
+  min-width: 180px;
+  max-width: 260px;
+  display: grid;
+  gap: 2px;
+  justify-items: end;
+  align-self: stretch;
+  transform-style: preserve-3d;
+}
+
+.top-activity-item {
+  max-width: 100%;
+  font-size: 11px;
+  line-height: 1.2;
+  color: #54493e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transform-origin: center top;
+  transition: transform 180ms ease, opacity 180ms ease, background 180ms ease;
+}
+
+.top-activity-item-latest {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.5);
+  color: #2f2a33;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.42);
 }
 
 .board-area {

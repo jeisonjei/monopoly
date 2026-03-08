@@ -16,10 +16,24 @@
       </span>
       <span class="status-bar-turn-owner" [title]="turnStatusOwnerTitle()">{{ turnStatusOwnerLabel() }}</span>
 
-      <span class="status-pill">{{ statusConnectionLabel() }}</span>
+      <span class="status-pill" [style.background]="statusConnectionPillBackground()" [style.color]="statusConnectionPillColor()">
+        {{ statusConnectionLabel() }}
+      </span>
       <span class="status-pill">{{ i18n.t('dice') }} {{ statusDiceLabel() }}</span>
       <span class="status-pill" *ngIf="yourPlayer() as me">{{ me.money }}</span>
       <span class="status-pill" *ngIf="yourPlayer() as me">{{ statusTileLabel(me.position_index) }}</span>
+
+      <div class="top-activity" *ngIf="topStatusActivity().length">
+        <div
+          class="top-activity-item"
+          *ngFor="let item of topStatusActivity(); let idx = index"
+          [class.top-activity-item-latest]="idx === 0"
+          [style.transform]="topActivityTransform(idx)"
+          [style.opacity]="topActivityOpacity(idx)"
+        >
+          {{ item }}
+        </div>
+      </div>
     </div>
     <nav class="top-nav">
       <a routerLink="/login" *ngIf="!auth.isAuthenticated()">{{ i18n.t('login') }}</a>
@@ -267,12 +281,6 @@
       <h3>{{ i18n.t('dice_section') }}</h3>
       <div class="dice">{{ dice1() ?? '-' }} : {{ dice2() ?? '-' }}</div>
 
-      <h3>{{ i18n.t('connection_section') }}</h3>
-      <div>{{ statusConnectionLabel() }}</div>
-
-      <h3>{{ i18n.t('turn_section') }}</h3>
-      <div>{{ i18n.t('seat') }}: {{ turnSeat() }}<span class="muted" *ngIf="turnPlayerName()">{{ turnPlayerName() }}</span></div>
-
       <h3>{{ i18n.t('you_section') }}</h3>
       <div *ngIf="yourSeat() !== null; else noSeat">{{ i18n.t('seat') }}: {{ yourSeat() }}<span class="muted" *ngIf="auth.username()">{{ auth.username() }}</span></div>
       <ng-template #noSeat>
@@ -281,7 +289,7 @@
 
       <div *ngIf="yourPlayer() as me">
         <div>{{ i18n.t('money') }}: {{ me.money }}</div>
-        <div class="muted">{{ i18n.t('tile') }}: {{ me.position_index }}</div>
+        <div class="muted">{{ i18n.t('tile') }}: {{ currentTileName(me.position_index) }}</div>
       </div>
 
       <div *ngIf="pendingTileInfo() as info">
@@ -325,6 +333,7 @@
     [actionLabel]="specialCard() ? specialCardActionLabel(specialCard()!) : ''"
     [actionButtonLabel]="specialCard() ? specialCardActionButtonLabel(specialCard()!) : i18n.t('take_action')"
     [actionPending]="specialCardActionPending()"
+    [readonlyMode]="specialCard()?.readonly ?? false"
     (closed)="closeSpecialCard()"
     (actionTaken)="takeSpecialCardAction()"
   />

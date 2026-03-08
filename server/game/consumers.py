@@ -192,6 +192,21 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
     def _serialize_players(cls, players: list[PlayerState]) -> list[dict]:
         return [p.to_dict() for p in players]
 
+    @staticmethod
+    def _special_card_event(payload: dict, owner_seat_index: int, state_version: int) -> dict:
+        return {
+            "type": "special_card_drawn",
+            "action": payload.get("action"),
+            "actionButtonLabel": payload.get("actionButtonLabel"),
+            "cardId": payload.get("cardId"),
+            "cardKind": payload.get("cardKind"),
+            "instruction": payload.get("instruction"),
+            "owner_seat_index": owner_seat_index,
+            "state_version": state_version,
+            "tileIndex": payload.get("tileIndex"),
+            "title": payload.get("title"),
+        }
+
     async def receive_json(self, content, **kwargs):
         msg_type = content.get("type")
         if msg_type == "roll_dice":
@@ -321,7 +336,10 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
         await self._move_player_by_steps(player, steps, collect_go=True)
         board_event_payload = await self._ensure_landing_resolution(game, player)
         if board_event_payload is not None:
-            await self.send_json(board_event_payload)
+            await self.channel_layer.group_send(
+                self.group_name,
+                self._special_card_event(board_event_payload, player.seat_index, game.state_version),
+            )
 
         await self.channel_layer.group_send(
             self.group_name,
@@ -389,12 +407,18 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             await self._move_player_by_steps(player, int(action_value), collect_go=False)
             follow_up_payload = await self._ensure_landing_resolution(game, player)
             if follow_up_payload is not None:
-                await self.send_json(follow_up_payload)
+                await self.channel_layer.group_send(
+                    self.group_name,
+                    self._special_card_event(follow_up_payload, player.seat_index, game.state_version),
+                )
         elif action_kind == "move_absolute":
             await self._move_player_to_tile(player, int(action.get("target_tile_index") or 0), collect_go=True)
             follow_up_payload = await self._ensure_landing_resolution(game, player)
             if follow_up_payload is not None:
-                await self.send_json(follow_up_payload)
+                await self.channel_layer.group_send(
+                    self.group_name,
+                    self._special_card_event(follow_up_payload, player.seat_index, game.state_version),
+                )
         elif action_kind == "money_from_each_player":
             other_players = [p for p in await PlayerState.list_for_game_async(game_id=game.id) if p.id != player.id]
             total = 0
@@ -713,5 +737,21 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
                 "type": "properties_updated",
                 "properties": event["properties"],
                 "state_version": event["state_version"],
+            }
+        )
+
+    async def special_card_drawn(self, event):
+        await self.send_json(
+            {
+                "type": "special_card_drawn",
+                "action": event.get("action"),
+                "actionButtonLabel": event.get("actionButtonLabel"),
+                "cardId": event.get("cardId"),
+                "cardKind": event.get("cardKind"),
+                "instruction": event.get("instruction"),
+                "owner_seat_index": event.get("owner_seat_index"),
+                "state_version": event.get("state_version"),
+                "tileIndex": event.get("tileIndex"),
+                "title": event.get("title"),
             }
         )

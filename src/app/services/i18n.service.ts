@@ -94,6 +94,8 @@ type TranslationKey =
   | 'close'
   | 'applying'
   | 'take_action'
+  | 'pay_tax'
+  | 'watching_only'
   | 'request_timed_out'
   | 'invalid_credentials'
   | 'username_already_exists'
@@ -204,6 +206,8 @@ const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> = {
     close: 'Закрыть',
     applying: 'Применение...',
     take_action: 'Выполнить действие',
+    pay_tax: 'Оплатить налог',
+    watching_only: 'Только просмотр',
     request_timed_out: 'Сервер отвечает слишком долго. Попробуйте ещё раз.',
     invalid_credentials: 'Неверный логин или пароль.',
     username_already_exists: 'Пользователь с таким именем уже существует.',
@@ -311,6 +315,8 @@ const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> = {
     close: 'Close',
     applying: 'Applying...',
     take_action: 'Take an action',
+    pay_tax: 'Pay tax',
+    watching_only: 'Viewing only',
     request_timed_out: 'The server is taking too long to respond. Please try again.',
     invalid_credentials: 'Invalid username or password.',
     username_already_exists: 'A user with that username already exists.',

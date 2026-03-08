@@ -45,7 +45,7 @@ const PLAYER_CHIP_COLORS = ['#ff3b30', '#34c759', '#007aff', '#ffcc00', '#af52de
 export class GamePage implements OnDestroy {
   connected = signal(false);
   error = signal<string | null>(null);
-  specialCard = signal<SpecialCardPayload | null>(null);
+  specialCard = signal<SpecialCardVm | null>(null);
   specialCardActionPending = signal(false);
   markerCalibrationMode = signal(false);
   selectedMarkerTileIndex = signal(1);
@@ -73,6 +73,7 @@ export class GamePage implements OnDestroy {
   private readonly onWindowPointerUp = (): void => {
     this.stopGeometryInteraction();
   };
+  private audioContext: AudioContext | null = null;
 
   constructor(
     public readonly auth: AuthService,
@@ -110,6 +111,7 @@ export class GamePage implements OnDestroy {
   }
 
   connect(): void {
+    this.ensureAudioContext();
     this.error.set(null);
     const token = this.auth.accessToken();
     if (!token) {
@@ -138,6 +140,7 @@ export class GamePage implements OnDestroy {
   }
 
   roll(): void {
+    this.ensureAudioContext();
     this.ws.send({ type: 'roll_dice' });
   }
 
@@ -146,14 +149,17 @@ export class GamePage implements OnDestroy {
   }
 
   claimFirstTurn(): void {
+    this.ensureAudioContext();
     this.ws.send({ type: 'claim_first_turn' });
   }
 
   resetGame(): void {
+    this.ensureAudioContext();
     this.ws.send({ type: 'reset_game' });
   }
 
   buy(): void {
+    this.ensureAudioContext();
     this.ws.send({ type: 'buy_property' });
   }
 
@@ -253,6 +259,7 @@ export class GamePage implements OnDestroy {
   }
 
   endTurn(): void {
+    this.ensureAudioContext();
     this.ws.send({ type: 'end_turn' });
   }
 
@@ -268,6 +275,9 @@ export class GamePage implements OnDestroy {
     if (ev.type === 'turn_changed') {
       this.turnSeat.set(ev.turn_seat_index);
       const playerName = this.playerNameForSeat(ev.turn_seat_index);
+      if (this.yourSeat() !== null && ev.turn_seat_index === this.yourSeat()) {
+        this.playTurnSound();
+      }
       this.pushAction(this.hasGameStarted() ? `Turn changed to ${playerName}` : `${playerName} will go first`);
     }
 
@@ -293,6 +303,14 @@ export class GamePage implements OnDestroy {
         this.specialCardActionPending.set(false);
         this.specialCard.set(null);
       }
+      const currentSpecialCard = this.specialCard();
+      if (currentSpecialCard) {
+        const owner = nextPlayers.find((player) => player.seat_index === currentSpecialCard.ownerSeatIndex) ?? null;
+        if (!owner?.pending_event_kind) {
+          this.specialCardActionPending.set(false);
+          this.specialCard.set(null);
+        }
+      }
       this.capturePlayerChanges(this.players(), ev.players ?? []);
       this.players.set(nextPlayers);
     }
@@ -309,6 +327,8 @@ export class GamePage implements OnDestroy {
         cardId: ev.cardId,
         cardKind: ev.cardKind,
         instruction: ev.instruction,
+        ownerSeatIndex: ev.owner_seat_index ?? null,
+        readonly: ev.owner_seat_index !== undefined && ev.owner_seat_index !== this.yourSeat(),
         tileIndex: ev.tileIndex,
         title: ev.title,
       });
@@ -339,6 +359,10 @@ export class GamePage implements OnDestroy {
   }
 
   closeSpecialCard(): void {
+    if (this.specialCard()?.readonly) {
+      return;
+    }
+
     const me = this.yourPlayer();
     if (me?.pending_event_kind) {
       return;
@@ -390,6 +414,53 @@ export class GamePage implements OnDestroy {
     return `color-mix(in srgb, ${color} 16%, rgba(94, 115, 140, 0.28))`;
   }
 
+  statusConnectionPillBackground(): string {
+    if (this.wsStatus() === 'connected') {
+      return 'rgba(191, 231, 201, 0.86)';
+    }
+
+    if (this.wsStatus() === 'disconnected') {
+      return 'rgba(248, 212, 208, 0.88)';
+    }
+
+    return 'rgba(255,255,255,0.62)';
+  }
+
+  statusConnectionPillColor(): string {
+    if (this.wsStatus() === 'connected') {
+      return '#166344';
+    }
+
+    if (this.wsStatus() === 'disconnected') {
+      return '#8a2f28';
+    }
+
+    return '#5f5448';
+  }
+
+  topStatusActivity(): string[] {
+    return this.actionLog().slice(0, 3);
+  }
+
+  topActivityTransform(index: number): string {
+    const scale = 1 - index * 0.08;
+    const translateY = index * 2;
+    const rotateX = index * 16;
+    return `perspective(220px) rotateX(${rotateX}deg) translateY(${translateY}px) scale(${scale})`;
+  }
+
+  topActivityOpacity(index: number): number {
+    return Math.max(0.38, 1 - index * 0.22);
+  }
+
+  currentTileName(tileIndex: number | null | undefined): string {
+    if (tileIndex === null || tileIndex === undefined) {
+      return `${this.i18n.t('tile')} —`;
+    }
+
+    return getTileDefinition(tileIndex).name;
+  }
+
   tokenShadow(color: string, own = false): string {
     const ring = own ? 'rgba(255, 214, 10, 0.42)' : 'rgba(255, 255, 255, 0.24)';
     const glow = own ? `color-mix(in srgb, ${color} 72%, #ffd60a)` : color;
@@ -426,6 +497,10 @@ export class GamePage implements OnDestroy {
       return this.i18n.t('cancel');
     }
 
+    if (normalizedLabel === 'pay tax') {
+      return this.i18n.t('pay_tax');
+    }
+
     return label;
   }
 
@@ -435,10 +510,11 @@ export class GamePage implements OnDestroy {
 
   takeSpecialCardAction(): void {
     const card = this.specialCard();
-    if (!card || this.specialCardActionPending()) {
+    if (!card || card.readonly || this.specialCardActionPending()) {
       return;
     }
 
+    this.ensureAudioContext();
     this.specialCardActionPending.set(true);
     this.ws.send({ type: 'resolve_board_event', tileIndex: card.tileIndex });
   }
@@ -499,11 +575,7 @@ export class GamePage implements OnDestroy {
   }
 
   statusTileLabel(tileIndex: number | null | undefined): string {
-    if (tileIndex === null || tileIndex === undefined) {
-      return `${this.i18n.t('tile')} —`;
-    }
-
-    return `${this.i18n.t('tile')} ${tileIndex}`;
+    return this.currentTileName(tileIndex);
   }
 
   private playerNameForSeat(seat: number): string {
@@ -534,10 +606,87 @@ export class GamePage implements OnDestroy {
       const moneyDelta = (nextPlayer.money ?? 0) - (previousPlayer.money ?? 0);
       if (moneyDelta >= 20) {
         this.pushAction(`${nextPlayer.username ?? `${this.i18n.t('seat')} ${nextPlayer.seat_index}`} ${this.i18n.t('received_prefix')} ${moneyDelta}`);
+        if (this.isOwnSeat(nextPlayer.seat_index)) {
+          this.playMoneySound('gain');
+        }
       } else if (moneyDelta <= -20) {
         this.pushAction(`${nextPlayer.username ?? `${this.i18n.t('seat')} ${nextPlayer.seat_index}`} ${this.i18n.t('paid_prefix')} ${Math.abs(moneyDelta)}`);
+        if (this.isOwnSeat(nextPlayer.seat_index)) {
+          this.playMoneySound('loss');
+        }
       }
     }
+  }
+
+  private ensureAudioContext(): AudioContext | null {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+
+    const AudioContextCtor = window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextCtor) {
+      return null;
+    }
+
+    if (!this.audioContext) {
+      this.audioContext = new AudioContextCtor();
+    }
+
+    if (this.audioContext.state === 'suspended') {
+      void this.audioContext.resume();
+    }
+
+    return this.audioContext;
+  }
+
+  private playMoneySound(kind: 'gain' | 'loss'): void {
+    const context = this.ensureAudioContext();
+    if (!context) {
+      return;
+    }
+
+    const now = context.currentTime + 0.01;
+    const notes = kind === 'gain' ? [523.25, 659.25] : [349.23, 293.66];
+    notes.forEach((frequency, index) => {
+      this.scheduleTone(context, now + index * 0.08, frequency, 0.12, kind === 'gain' ? 'sine' : 'triangle', 0.018);
+    });
+  }
+
+  private playTurnSound(): void {
+    const context = this.ensureAudioContext();
+    if (!context) {
+      return;
+    }
+
+    const now = context.currentTime + 0.01;
+    [392, 523.25, 659.25].forEach((frequency, index) => {
+      this.scheduleTone(context, now + index * 0.07, frequency, 0.13, 'sine', 0.02);
+    });
+  }
+
+  private scheduleTone(
+    context: AudioContext,
+    startTime: number,
+    frequency: number,
+    duration: number,
+    type: OscillatorType,
+    volume: number
+  ): void {
+    const oscillator = context.createOscillator();
+    const gainNode = context.createGain();
+
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(frequency, startTime);
+
+    gainNode.gain.setValueAtTime(0.0001, startTime);
+    gainNode.gain.linearRampToValueAtTime(volume, startTime + 0.03);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+
+    oscillator.connect(gainNode);
+    gainNode.connect(context.destination);
+
+    oscillator.start(startTime);
+    oscillator.stop(startTime + duration + 0.02);
   }
 
   private capturePropertyChanges(previousProperties: any[], nextProperties: any[]): void {
@@ -967,8 +1116,13 @@ type PropertyCardVm = {
 
 type OpponentCardGroupVm = {
   ownerSeat: number;
-  title: string;
   slots: Array<PropertyCardVm | null>;
+  title: string;
+};
+
+type SpecialCardVm = SpecialCardPayload & {
+  ownerSeatIndex: number | null;
+  readonly: boolean;
 };
 
 type GeometryInteractionMode = 'move' | 'resize-nw' | 'resize-ne' | 'resize-sw' | 'resize-se';
