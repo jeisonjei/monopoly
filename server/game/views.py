@@ -2,6 +2,7 @@ from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .consumers import GameConsumer
 from .models import Game, PlayerState, PropertyState
 
 
@@ -39,7 +40,10 @@ class GameStateView(APIView):
         return Response(
             {
                 "game": game.to_dict(),
-                "players": [p.to_dict() for p in players],
+                "players": [
+                    p.to_dict(is_connected=GameConsumer._is_user_connected(p.user_id))
+                    for p in players
+                ],
                 "properties": [p.to_dict() for p in properties],
                 "you": {"seat_index": player.seat_index},
             }

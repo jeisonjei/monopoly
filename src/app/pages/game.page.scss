@@ -477,13 +477,15 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.18), 0 0 14px rgba(255, 255, 255, 0.34), 0 10px 20px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.45);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.24), 0 0 18px rgba(255, 255, 255, 0.5), 0 0 28px rgba(255, 255, 255, 0.22), 0 10px 20px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.45);
+  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.4));
   user-select: none;
   z-index: 4;
 }
 
 .token-own {
-  box-shadow: 0 0 0 4px rgba(255, 214, 10, 0.34), 0 0 20px rgba(255, 214, 10, 0.78), 0 10px 20px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.45);
+  box-shadow: 0 0 0 4px rgba(255, 214, 10, 0.38), 0 0 24px rgba(255, 214, 10, 0.84), 0 0 36px rgba(255, 214, 10, 0.26), 0 10px 20px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.45);
+  filter: drop-shadow(0 0 12px rgba(255, 214, 10, 0.55));
 }
 
 .rotate-board-btn {

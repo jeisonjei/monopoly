@@ -144,7 +144,7 @@
 
               <div
                 class="token"
-                *ngFor="let p of players()"
+                *ngFor="let p of visiblePlayers()"
                 [class.token-own]="isOwnSeat(p.seat_index)"
                 [style.left.%]="playerTokenPoint(p.position_index).leftPct"
                 [style.top.%]="playerTokenPoint(p.position_index).topPct"
@@ -289,8 +289,8 @@
       </div>
 
       <h3>{{ i18n.t('players_section') }}</h3>
-      <div class="players" *ngIf="players().length; else noPlayers">
-        <div class="player" *ngFor="let p of players()">
+      <div class="players" *ngIf="visiblePlayers().length; else noPlayers">
+        <div class="player" *ngFor="let p of visiblePlayers()">
           <span>{{ i18n.t('seat') }} {{ p.seat_index }}<span class="muted">{{ p.username }}</span></span>
           <span class="muted">{{ p.money }}</span>
         </div>

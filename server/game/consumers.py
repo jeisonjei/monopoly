@@ -187,6 +187,10 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
     def _is_user_connected(cls, user_id: int) -> bool:
         return cls.active_connections.get(user_id, 0) > 0
 
+    @classmethod
+    def _serialize_players(cls, players: list[PlayerState]) -> list[dict]:
+        return [p.to_dict(is_connected=cls._is_user_connected(p.user_id)) for p in players]
+
     async def receive_json(self, content, **kwargs):
         msg_type = content.get("type")
         if msg_type == "roll_dice":
@@ -253,7 +257,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             {
                 "type": "state_snapshot",
                 "game": game.to_dict(),
-                "players": [p.to_dict() for p in players],
+                "players": self._serialize_players(players),
                 "properties": [p.to_dict() for p in properties],
             }
         )
@@ -334,7 +338,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             self.group_name,
             {
                 "type": "players_updated",
-                "players": [p.to_dict() for p in players],
+                "players": self._serialize_players(players),
                 "state_version": game.state_version,
             },
         )
@@ -452,7 +456,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             self.group_name,
             {
                 "type": "players_updated",
-                "players": [p.to_dict() for p in players],
+                "players": self._serialize_players(players),
                 "state_version": game.state_version,
             },
         )
@@ -513,7 +517,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             self.group_name,
             {
                 "type": "players_updated",
-                "players": [p.to_dict() for p in players],
+                "players": self._serialize_players(players),
                 "state_version": game.state_version,
             },
         )
@@ -617,7 +621,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             self.group_name,
             {
                 "type": "players_updated",
-                "players": [p.to_dict() for p in players],
+                "players": self._serialize_players(players),
                 "state_version": game.state_version,
             },
         )

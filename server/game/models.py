@@ -68,8 +68,8 @@ class PlayerState(models.Model):
             models.UniqueConstraint(fields=["game", "user"], name="uniq_game_user"),
         ]
 
-    def to_dict(self):
-        return {
+    def to_dict(self, *, is_connected: bool | None = None):
+        data = {
             "id": self.id,
             "user_id": self.user_id,
             "username": self.user.username,
@@ -85,6 +85,11 @@ class PlayerState(models.Model):
             "chance_jail_free_cards": self.chance_jail_free_cards,
             "community_chest_jail_free_cards": self.community_chest_jail_free_cards,
         }
+
+        if is_connected is not None:
+            data["is_connected"] = is_connected
+
+        return data
 
     @classmethod
     async def get_for_user_async(cls, game_id: int, user_id: int):

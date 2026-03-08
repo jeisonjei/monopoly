@@ -89,9 +89,24 @@ type TranslationKey =
   | 'websocket_closed'
   | 'required_field'
   | 'invalid_email_address'
+  | 'cancel'
   | 'close'
   | 'applying'
-  | 'take_action';
+  | 'take_action'
+  | 'request_timed_out'
+  | 'invalid_credentials'
+  | 'username_already_exists'
+  | 'email_already_exists'
+  | 'username_field'
+  | 'email_field'
+  | 'password_field'
+  | 'cards_suffix'
+  | 'joined_game_suffix'
+  | 'moved_to_prefix'
+  | 'received_prefix'
+  | 'paid_prefix'
+  | 'bought_prefix'
+  | 'owns_suffix';
 
 const LANGUAGE_STORAGE_KEY = 'monopoly.language';
 
@@ -183,9 +198,24 @@ const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> = {
     websocket_closed: 'Соединение WebSocket закрыто',
     required_field: 'обязательное поле.',
     invalid_email_address: 'Введите корректный email адрес.',
+    cancel: 'Отмена',
     close: 'Закрыть',
     applying: 'Применение...',
     take_action: 'Выполнить действие',
+    request_timed_out: 'Сервер отвечает слишком долго. Попробуйте ещё раз.',
+    invalid_credentials: 'Неверный логин или пароль.',
+    username_already_exists: 'Пользователь с таким именем уже существует.',
+    email_already_exists: 'Пользователь с таким email уже существует.',
+    username_field: 'Имя пользователя',
+    email_field: 'Email',
+    password_field: 'Пароль',
+    cards_suffix: 'карточки',
+    joined_game_suffix: 'присоединился к игре',
+    moved_to_prefix: 'переместился на',
+    received_prefix: 'получил',
+    paid_prefix: 'заплатил',
+    bought_prefix: 'купил',
+    owns_suffix: 'владеет',
   },
   en: {
     app_title: 'Monopoly',
@@ -274,9 +304,24 @@ const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> = {
     websocket_closed: 'WebSocket connection closed',
     required_field: 'is required.',
     invalid_email_address: 'Enter a valid email address.',
+    cancel: 'Cancel',
     close: 'Close',
     applying: 'Applying...',
     take_action: 'Take an action',
+    request_timed_out: 'The server is taking too long to respond. Please try again.',
+    invalid_credentials: 'Invalid username or password.',
+    username_already_exists: 'A user with that username already exists.',
+    email_already_exists: 'A user with that email already exists.',
+    username_field: 'Username',
+    email_field: 'Email',
+    password_field: 'Password',
+    cards_suffix: 'cards',
+    joined_game_suffix: 'joined the game',
+    moved_to_prefix: 'moved to',
+    received_prefix: 'received',
+    paid_prefix: 'paid',
+    bought_prefix: 'bought',
+    owns_suffix: 'owns',
   },
 };
 

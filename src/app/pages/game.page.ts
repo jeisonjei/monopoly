@@ -356,7 +356,21 @@ export class GamePage implements OnDestroy {
   }
 
   specialCardActionButtonLabel(card: SpecialCardPayload): string {
-    return boardEventActionButtonLabel(card) || this.i18n.t('take_action');
+    const label = boardEventActionButtonLabel(card)?.trim();
+    if (!label) {
+      return this.i18n.t('take_action');
+    }
+
+    const normalizedLabel = label.toLowerCase();
+    if (normalizedLabel === 'take an action') {
+      return this.i18n.t('take_action');
+    }
+
+    if (normalizedLabel === 'cancel') {
+      return this.i18n.t('cancel');
+    }
+
+    return label;
   }
 
   specialCardKicker(card: SpecialCardPayload): string {
@@ -385,7 +399,7 @@ export class GamePage implements OnDestroy {
 
   turnPlayerName(): string | null {
     const seat = this.turnSeat();
-    return this.players().find((p) => p.seat_index === seat)?.username ?? null;
+    return this.visiblePlayers().find((p) => p.seat_index === seat)?.username ?? this.players().find((p) => p.seat_index === seat)?.username ?? null;
   }
 
   isOwnSeat(seat: number | null | undefined): boolean {
@@ -438,7 +452,7 @@ export class GamePage implements OnDestroy {
 
   private playerNameForSeat(seat: number): string {
     const player = this.players().find((p) => p.seat_index === seat);
-    return player?.username ? `${player.username} (Seat ${seat})` : `Seat ${seat}`;
+    return player?.username ? `${player.username} (${this.i18n.t('seat')} ${seat})` : `${this.i18n.t('seat')} ${seat}`;
   }
 
   private pushAction(message: string): void {
@@ -450,22 +464,22 @@ export class GamePage implements OnDestroy {
     for (const nextPlayer of nextPlayers) {
       const previousPlayer = previousPlayers.find((p) => p.seat_index === nextPlayer.seat_index);
       if (!previousPlayer) {
-        this.pushAction(`${this.playerNameForSeat(nextPlayer.seat_index)} joined the game`);
+        this.pushAction(`${this.playerNameForSeat(nextPlayer.seat_index)} ${this.i18n.t('joined_game_suffix')}`);
         continue;
       }
 
       if (previousPlayer.position_index !== nextPlayer.position_index) {
         const tile = getTileDefinition(nextPlayer.position_index);
         this.pushAction(
-          `${nextPlayer.username ?? `Seat ${nextPlayer.seat_index}`} moved to ${tile.name}`
+          `${nextPlayer.username ?? `${this.i18n.t('seat')} ${nextPlayer.seat_index}`} ${this.i18n.t('moved_to_prefix')} ${tile.name}`
         );
       }
 
       const moneyDelta = (nextPlayer.money ?? 0) - (previousPlayer.money ?? 0);
       if (moneyDelta >= 20) {
-        this.pushAction(`${nextPlayer.username ?? `Seat ${nextPlayer.seat_index}`} received ${moneyDelta}`);
+        this.pushAction(`${nextPlayer.username ?? `${this.i18n.t('seat')} ${nextPlayer.seat_index}`} ${this.i18n.t('received_prefix')} ${moneyDelta}`);
       } else if (moneyDelta <= -20) {
-        this.pushAction(`${nextPlayer.username ?? `Seat ${nextPlayer.seat_index}`} paid ${Math.abs(moneyDelta)}`);
+        this.pushAction(`${nextPlayer.username ?? `${this.i18n.t('seat')} ${nextPlayer.seat_index}`} ${this.i18n.t('paid_prefix')} ${Math.abs(moneyDelta)}`);
       }
     }
   }
@@ -484,7 +498,7 @@ export class GamePage implements OnDestroy {
       ) {
         const tile = getTileDefinition(nextProperty.tile_index);
         this.pushAction(
-          `${this.playerNameForSeat(nextProperty.owner_seat_index)} bought ${tile.name}`
+          `${this.playerNameForSeat(nextProperty.owner_seat_index)} ${this.i18n.t('bought_prefix')} ${tile.name}`
         );
       }
     }
@@ -553,9 +567,41 @@ export class GamePage implements OnDestroy {
           leftPct: position.leftPct,
           topPct: position.topPct,
           color: this.seatColor(ownerSeat),
-          title: `${this.playerNameForSeat(ownerSeat)} owns ${tile.name}`
+          title: `${this.playerNameForSeat(ownerSeat)} ${this.i18n.t('owns_suffix')} ${tile.name}`
         };
       });
+  }
+
+  visiblePlayers(): any[] {
+    const players = [...this.players()].sort((a, b) => a.seat_index - b.seat_index);
+    const yourSeat = this.yourSeat();
+    const ownedSeats = new Set(
+      this.properties()
+        .filter((property) => property.owner_seat_index !== null && property.owner_seat_index !== undefined)
+        .map((property) => property.owner_seat_index as number)
+    );
+
+    const visible = players.filter((player) => {
+      if (yourSeat !== null && player.seat_index === yourSeat) {
+        return true;
+      }
+
+      if (ownedSeats.has(player.seat_index)) {
+        return true;
+      }
+
+      if (player.is_connected === true) {
+        return true;
+      }
+
+      if (player.is_connected === false) {
+        return false;
+      }
+
+      return true;
+    });
+
+    return visible.length ? visible : players;
   }
 
   opponentCardGroups(): OpponentCardGroupVm[] {
@@ -567,7 +613,7 @@ export class GamePage implements OnDestroy {
       groups.set(card.ownerSeat, current);
     }
 
-    const opponents = this.players()
+    const opponents = this.visiblePlayers()
       .filter((player) => this.yourSeat() === null || player.seat_index !== this.yourSeat())
       .sort((a, b) => a.seat_index - b.seat_index);
 
@@ -577,7 +623,7 @@ export class GamePage implements OnDestroy {
       );
       return {
         ownerSeat: player.seat_index,
-        title: `${player.username ?? `Seat ${player.seat_index}`} cards`,
+        title: `${player.username ?? `${this.i18n.t('seat')} ${player.seat_index}`} ${this.i18n.t('cards_suffix')}`,
         slots: this.buildCardSlots(cards, 6),
       };
     });
@@ -618,7 +664,7 @@ export class GamePage implements OnDestroy {
           kind: tile.kind,
           kindLabel: tileKindLabel(tile.kind),
           ownerSeat,
-          ownerName: owner?.username ? `${owner.username} (Seat ${ownerSeat})` : `Seat ${ownerSeat}`,
+          ownerName: owner?.username ? `${owner.username} (${this.i18n.t('seat')} ${ownerSeat})` : `${this.i18n.t('seat')} ${ownerSeat}`,
           price: property.purchase_price,
           rent: property.base_rent,
           bandColor,
