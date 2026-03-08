@@ -80,7 +80,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
 
             if prop.owner_seat_index != player.seat_index:
                 owner = await PlayerState.objects.filter(game_id=game.id, seat_index=prop.owner_seat_index).afirst()
-                if owner is not None:
+                if owner is not None and owner.connection_count > 0:
                     if landed_tile_definition["kind"] == "utility":
                         rent_multiplier = await self._calculate_property_rent(game, landed_tile, prop.owner_seat_index)
                         rent = (int(game.last_dice_1 or 0) + int(game.last_dice_2 or 0)) * rent_multiplier
@@ -132,7 +132,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             return
 
         owner = await PlayerState.objects.filter(game_id=game.id, seat_index=prop.owner_seat_index).afirst()
-        if owner is None:
+        if owner is None or owner.connection_count == 0:
             return
 
         if action_kind == "move_to_next_utility":
@@ -420,7 +420,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
                     self._special_card_event(follow_up_payload, player.seat_index, game.state_version),
                 )
         elif action_kind == "money_from_each_player":
-            other_players = [p for p in await PlayerState.list_for_game_async(game_id=game.id) if p.id != player.id]
+            other_players = [p for p in await PlayerState.list_for_game_async(game_id=game.id) if p.id != player.id and p.connection_count > 0]
             total = 0
             for other in other_players:
                 payment = int(action_value)
@@ -430,7 +430,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             player.money += total
             await player.asave(update_fields=["money"])
         elif action_kind == "money_to_each_player":
-            other_players = [p for p in await PlayerState.list_for_game_async(game_id=game.id) if p.id != player.id]
+            other_players = [p for p in await PlayerState.list_for_game_async(game_id=game.id) if p.id != player.id and p.connection_count > 0]
             total = 0
             for other in other_players:
                 payment = int(action_value)

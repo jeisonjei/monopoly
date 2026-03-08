@@ -269,7 +269,7 @@ export class GamePage implements OnDestroy {
       this.dice2.set(ev.d2);
       this.hasGameStarted.set(true);
       const playerName = this.playerNameForSeat(ev.seat_index);
-      this.pushAction(`${playerName} rolled ${ev.d1} + ${ev.d2} = ${ev.d1 + ev.d2}`);
+      this.recordActivity({ type: 'dice_rolled', playerName, d1: ev.d1, d2: ev.d2 });
     }
 
     if (ev.type === 'turn_changed') {
@@ -278,7 +278,7 @@ export class GamePage implements OnDestroy {
       if (this.yourSeat() !== null && ev.turn_seat_index === this.yourSeat()) {
         this.playTurnSound();
       }
-      this.pushAction(this.hasGameStarted() ? `Turn changed to ${playerName}` : `${playerName} will go first`);
+      this.recordActivity({ type: 'turn_changed', playerName, hasStarted: this.hasGameStarted() });
     }
 
     if (ev.type === 'state_snapshot') {
@@ -286,7 +286,7 @@ export class GamePage implements OnDestroy {
       this.hasGameStarted.set(!!ev.game.last_roll_at);
       this.players.set(ev.players ?? []);
       this.properties.set(ev.properties ?? []);
-      this.pushAction(this.i18n.t('connected_to_game_room'));
+      this.recordActivity({ type: 'connected' });
     }
 
     if (ev.type === 'players_updated') {
@@ -295,7 +295,7 @@ export class GamePage implements OnDestroy {
         this.dice1.set(null);
         this.dice2.set(null);
         this.hasGameStarted.set(false);
-        this.pushAction('Game reset');
+        this.recordActivity({ type: 'game_reset' });
       }
       const yourSeat = this.yourSeat();
       const nextYou = yourSeat === null ? null : nextPlayers.find((player) => player.seat_index === yourSeat) ?? null;
@@ -311,12 +311,12 @@ export class GamePage implements OnDestroy {
           this.specialCard.set(null);
         }
       }
-      this.capturePlayerChanges(this.players(), ev.players ?? []);
+      this.recordActivities(this.capturePlayerChanges(this.players(), ev.players ?? []));
       this.players.set(nextPlayers);
     }
 
     if (ev.type === 'properties_updated') {
-      this.capturePropertyChanges(this.properties(), ev.properties ?? []);
+      this.recordActivities(this.capturePropertyChanges(this.properties(), ev.properties ?? []));
       this.properties.set(ev.properties ?? []);
     }
 
@@ -333,7 +333,7 @@ export class GamePage implements OnDestroy {
         title: ev.title,
       });
       this.specialCardActionPending.set(false);
-      this.pushAction(`${ev.title}: ${ev.instruction}`);
+      this.recordActivity({ type: 'special_card', title: ev.title, instruction: ev.instruction });
     }
 
     if (ev.type === 'error') {
@@ -583,39 +583,167 @@ export class GamePage implements OnDestroy {
     return player?.username ? `${player.username} (${this.i18n.t('seat')} ${seat})` : `${this.i18n.t('seat')} ${seat}`;
   }
 
-  private pushAction(message: string): void {
-    const next = [message, ...this.actionLog()];
-    this.actionLog.set(next.slice(0, 8));
+  private recordActivity(event: ActivityEvent): void {
+    this.recordActivities([event]);
   }
 
-  private capturePlayerChanges(previousPlayers: any[], nextPlayers: any[]): void {
+  private recordActivities(events: ActivityEvent[]): void {
+    if (!events.length) {
+      return;
+    }
+
+    const messages = events.map((event) => this.activityMessage(event)).filter(Boolean);
+    if (!messages.length) {
+      return;
+    }
+
+    this.actionLog.set([...messages.reverse(), ...this.actionLog()].slice(0, 8));
+  }
+
+  private activityMessage(event: ActivityEvent): string {
+    if (event.type === 'connected') {
+      return this.i18n.t('connected_to_game_room');
+    }
+
+    if (event.type === 'game_reset') {
+      return 'Game reset';
+    }
+
+    if (event.type === 'dice_rolled') {
+      return `${event.playerName} rolled ${event.d1} + ${event.d2} = ${event.d1 + event.d2}`;
+    }
+
+    if (event.type === 'turn_changed') {
+      return event.hasStarted ? `Turn changed to ${event.playerName}` : `${event.playerName} will go first`;
+    }
+
+    if (event.type === 'special_card') {
+      return `${event.title}: ${event.instruction}`;
+    }
+
+    if (event.type === 'player_joined') {
+      return `${event.playerName} ${this.i18n.t('joined_game_suffix')}`;
+    }
+
+    if (event.type === 'player_moved') {
+      return `${event.playerName} ${this.i18n.t('moved_to_prefix')} ${event.tileName}`;
+    }
+
+    if (event.type === 'player_received') {
+      return `${event.playerName} ${this.i18n.t('received_prefix')} ${event.amount}`;
+    }
+
+    if (event.type === 'player_paid') {
+      return `${event.playerName} ${this.i18n.t('paid_prefix')} ${event.amount}`;
+    }
+
+    if (event.type === 'rent_paid') {
+      return `${event.payerName} ${this.i18n.t('paid_prefix')} ${event.amount} ${event.tileName} (${event.ownerName})`;
+    }
+
+    if (event.type === 'property_bought') {
+      return `${this.playerNameForSeat(event.ownerSeat)} ${this.i18n.t('bought_prefix')} ${event.tileName}`;
+    }
+
+    return '';
+  }
+
+  private capturePlayerChanges(previousPlayers: any[], nextPlayers: any[]): ActivityEvent[] {
+    const events: ActivityEvent[] = [];
+    const previousBySeat = new Map(previousPlayers.map((player) => [player.seat_index, player]));
+    const nextBySeat = new Map(nextPlayers.map((player) => [player.seat_index, player]));
+    const moneyDeltas = new Map<number, number>();
+
     for (const nextPlayer of nextPlayers) {
-      const previousPlayer = previousPlayers.find((p) => p.seat_index === nextPlayer.seat_index);
+      const previousPlayer = previousBySeat.get(nextPlayer.seat_index);
       if (!previousPlayer) {
-        this.pushAction(`${this.playerNameForSeat(nextPlayer.seat_index)} ${this.i18n.t('joined_game_suffix')}`);
+        events.push({
+          type: 'player_joined',
+          playerName: this.playerNameForState(nextPlayer),
+          seatIndex: nextPlayer.seat_index
+        });
         continue;
       }
 
       if (previousPlayer.position_index !== nextPlayer.position_index) {
         const tile = getTileDefinition(nextPlayer.position_index);
-        this.pushAction(
-          `${nextPlayer.username ?? `${this.i18n.t('seat')} ${nextPlayer.seat_index}`} ${this.i18n.t('moved_to_prefix')} ${tile.name}`
-        );
+        events.push({
+          type: 'player_moved',
+          playerName: this.playerNameForState(nextPlayer),
+          seatIndex: nextPlayer.seat_index,
+          tileIndex: nextPlayer.position_index,
+          tileName: tile.name
+        });
       }
 
       const moneyDelta = (nextPlayer.money ?? 0) - (previousPlayer.money ?? 0);
-      if (moneyDelta >= 20) {
-        this.pushAction(`${nextPlayer.username ?? `${this.i18n.t('seat')} ${nextPlayer.seat_index}`} ${this.i18n.t('received_prefix')} ${moneyDelta}`);
+      if (moneyDelta !== 0) {
+        moneyDeltas.set(nextPlayer.seat_index, moneyDelta);
         if (this.isOwnSeat(nextPlayer.seat_index)) {
-          this.playMoneySound('gain');
-        }
-      } else if (moneyDelta <= -20) {
-        this.pushAction(`${nextPlayer.username ?? `${this.i18n.t('seat')} ${nextPlayer.seat_index}`} ${this.i18n.t('paid_prefix')} ${Math.abs(moneyDelta)}`);
-        if (this.isOwnSeat(nextPlayer.seat_index)) {
-          this.playMoneySound('loss');
+          this.playMoneySound(moneyDelta > 0 ? 'gain' : 'loss');
         }
       }
     }
+
+    for (const nextPlayer of nextPlayers) {
+      const previousPlayer = previousBySeat.get(nextPlayer.seat_index);
+      if (!previousPlayer || previousPlayer.position_index === nextPlayer.position_index) {
+        continue;
+      }
+
+      const landedTileIndex = nextPlayer.position_index;
+      const landedProperty = this.properties().find((property) => property.tile_index === landedTileIndex) ?? null;
+      const ownerSeat = landedProperty?.owner_seat_index;
+      const payerDelta = moneyDeltas.get(nextPlayer.seat_index) ?? 0;
+      if (
+        ownerSeat === null ||
+        ownerSeat === undefined ||
+        ownerSeat === nextPlayer.seat_index ||
+        payerDelta >= 0
+      ) {
+        continue;
+      }
+
+      const ownerDelta = moneyDeltas.get(ownerSeat) ?? 0;
+      const transferAmount = Math.min(Math.abs(payerDelta), Math.max(0, ownerDelta));
+      if (transferAmount <= 0) {
+        continue;
+      }
+
+      events.push({
+        type: 'rent_paid',
+        amount: transferAmount,
+        ownerName: this.playerNameForState(nextBySeat.get(ownerSeat) ?? previousBySeat.get(ownerSeat) ?? { seat_index: ownerSeat }),
+        ownerSeat,
+        payerName: this.playerNameForState(nextPlayer),
+        payerSeat: nextPlayer.seat_index,
+        tileIndex: landedTileIndex,
+        tileName: getTileDefinition(landedTileIndex).name
+      });
+      moneyDeltas.delete(nextPlayer.seat_index);
+      moneyDeltas.set(ownerSeat, ownerDelta - transferAmount);
+    }
+
+    for (const nextPlayer of nextPlayers) {
+      const moneyDelta = moneyDeltas.get(nextPlayer.seat_index) ?? 0;
+      if (moneyDelta > 0) {
+        events.push({
+          type: 'player_received',
+          amount: moneyDelta,
+          playerName: this.playerNameForState(nextPlayer),
+          seatIndex: nextPlayer.seat_index
+        });
+      } else if (moneyDelta < 0) {
+        events.push({
+          type: 'player_paid',
+          amount: Math.abs(moneyDelta),
+          playerName: this.playerNameForState(nextPlayer),
+          seatIndex: nextPlayer.seat_index
+        });
+      }
+    }
+
+    return events;
   }
 
   private ensureAudioContext(): AudioContext | null {
@@ -689,7 +817,8 @@ export class GamePage implements OnDestroy {
     oscillator.stop(startTime + duration + 0.02);
   }
 
-  private capturePropertyChanges(previousProperties: any[], nextProperties: any[]): void {
+  private capturePropertyChanges(previousProperties: any[], nextProperties: any[]): ActivityEvent[] {
+    const events: ActivityEvent[] = [];
     for (const nextProperty of nextProperties) {
       const previousProperty = previousProperties.find((p) => p.tile_index === nextProperty.tile_index);
       if (!previousProperty) {
@@ -702,11 +831,20 @@ export class GamePage implements OnDestroy {
         nextProperty.owner_seat_index !== undefined
       ) {
         const tile = getTileDefinition(nextProperty.tile_index);
-        this.pushAction(
-          `${this.playerNameForSeat(nextProperty.owner_seat_index)} ${this.i18n.t('bought_prefix')} ${tile.name}`
-        );
+        events.push({
+          type: 'property_bought',
+          ownerSeat: nextProperty.owner_seat_index,
+          tileIndex: nextProperty.tile_index,
+          tileName: tile.name
+        });
       }
     }
+
+    return events;
+  }
+
+  private playerNameForState(player: { username?: string | null; seat_index: number }): string {
+    return player.username ? `${player.username} (${this.i18n.t('seat')} ${player.seat_index})` : `${this.i18n.t('seat')} ${player.seat_index}`;
   }
 
   private isResetState(players: any[]): boolean {
@@ -778,36 +916,7 @@ export class GamePage implements OnDestroy {
   }
 
   visiblePlayers(): any[] {
-    const players = [...this.players()].sort((a, b) => a.seat_index - b.seat_index);
-    const yourSeat = this.yourSeat();
-    const hasConnectionMetadata = players.some((player) => typeof player.is_connected === 'boolean');
-    const ownedSeats = new Set(
-      this.properties()
-        .filter((property) => property.owner_seat_index !== null && property.owner_seat_index !== undefined)
-        .map((property) => property.owner_seat_index as number)
-    );
-
-    const visible = players.filter((player) => {
-      if (yourSeat !== null && player.seat_index === yourSeat) {
-        return true;
-      }
-
-      if (ownedSeats.has(player.seat_index)) {
-        return true;
-      }
-
-      if (player.is_connected === true) {
-        return true;
-      }
-
-      if (player.is_connected === false) {
-        return false;
-      }
-
-      return !hasConnectionMetadata;
-    });
-
-    return visible.length ? visible : players;
+    return [...this.players()].sort((a, b) => a.seat_index - b.seat_index);
   }
 
   opponentCardGroups(): OpponentCardGroupVm[] {
@@ -1124,6 +1233,19 @@ type SpecialCardVm = SpecialCardPayload & {
   ownerSeatIndex: number | null;
   readonly: boolean;
 };
+
+type ActivityEvent =
+  | { type: 'connected' }
+  | { type: 'game_reset' }
+  | { type: 'dice_rolled'; playerName: string; d1: number; d2: number }
+  | { type: 'turn_changed'; playerName: string; hasStarted: boolean }
+  | { type: 'special_card'; title: string; instruction: string }
+  | { type: 'player_joined'; playerName: string; seatIndex: number }
+  | { type: 'player_moved'; playerName: string; seatIndex: number; tileIndex: number; tileName: string }
+  | { type: 'player_received'; playerName: string; seatIndex: number; amount: number }
+  | { type: 'player_paid'; playerName: string; seatIndex: number; amount: number }
+  | { type: 'rent_paid'; payerName: string; payerSeat: number; ownerName: string; ownerSeat: number; amount: number; tileIndex: number; tileName: string }
+  | { type: 'property_bought'; ownerSeat: number; tileIndex: number; tileName: string };
 
 type GeometryInteractionMode = 'move' | 'resize-nw' | 'resize-ne' | 'resize-sw' | 'resize-se';
 
