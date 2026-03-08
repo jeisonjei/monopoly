@@ -1,0 +1,1 @@
+- [ ] add the following functionality: when user is hovering with mouse over center of the board, show in this center rotate semi-transparent rotate icon - it should be pretty big, clickable and should rotate the board 90 degrees clockwise on each click - so user will be able to run board for convinience

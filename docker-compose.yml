@@ -1,0 +1,116 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: monopoly_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-monopoly}
+      POSTGRES_USER: ${POSTGRES_USER:-monopoly}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-monopoly}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      
+
+  api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: monopoly_api
+    restart: unless-stopped
+    depends_on:
+      - db
+      - mailhog
+    environment:
+      PORT: 3000
+      DB_NAME: ${POSTGRES_DB:-monopoly}
+      DB_USER: ${POSTGRES_USER:-monopoly}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-monopoly}
+      DB_HOST: db
+      DB_PORT: 5432
+      JWT_SECRET: ${JWT_SECRET:-dev-change-me}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@local.dev}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Never-contain-any-rails1!}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-true}
+      CORS_ORIGIN_ALLOW_ALL: ${CORS_ORIGIN_ALLOW_ALL:-true}
+      EMAIL_HOST: mailhog
+      EMAIL_PORT: 1025
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:8084}
+    command: sh -c "mkdir -p /var/log/monopoly && python manage.py migrate && python manage.py ensure_admin && python manage.py ensure_demo_users && gunicorn --timeout 90 --log-level debug --bind 0.0.0.0:3000 --access-logfile - --error-logfile - monopoly_server.asgi:application -k uvicorn.workers.UvicornWorker"
+    ports:
+      - "3003:3000"
+    volumes:
+      - api_logs:/var/log/monopoly
+
+  web:
+    image: nginx:1.27-alpine
+    container_name: monopoly_web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "8084:80"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./dist/monopoly/browser:/usr/share/nginx/html:ro
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: monopoly_mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: monopoly_loki
+    restart: unless-stopped
+    profiles:
+      - observability
+    command: -config.file=/etc/loki/config.yml
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./observability/loki/config.yml:/etc/loki/config.yml:ro
+      - loki_data:/loki
+
+  promtail:
+    image: grafana/promtail:3.0.0
+    container_name: monopoly_promtail
+    restart: unless-stopped
+    profiles:
+      - observability
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+      - api
+    volumes:
+      - ./observability/promtail/config.yml:/etc/promtail/config.yml:ro
+      - api_logs:/var/log/monopoly:ro
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: monopoly_grafana
+    restart: unless-stopped
+    profiles:
+      - observability
+    depends_on:
+      - loki
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+
+volumes:
+  pgdata:
+  api_logs:
+  loki_data:
+  grafana_data:

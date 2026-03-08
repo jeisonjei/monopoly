@@ -1,0 +1,28 @@
+"""
+ASGI config for monopoly_server project.
+
+It exposes the ASGI callable as a module-level variable named ``application``.
+
+For more information on this file, see
+https://docs.djangoproject.com/en/5.1/howto/deployment/asgi/
+"""
+
+import os
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'monopoly_server.settings')
+
+from django.core.asgi import get_asgi_application
+
+django_asgi_app = get_asgi_application()
+
+from channels.routing import ProtocolTypeRouter, URLRouter
+
+from monopoly_server.jwt_auth_middleware import JwtAuthMiddlewareStack
+from monopoly_server.routing import websocket_urlpatterns
+
+application = ProtocolTypeRouter(
+    {
+        "http": django_asgi_app,
+        "websocket": JwtAuthMiddlewareStack(URLRouter(websocket_urlpatterns)),
+    }
+)
