@@ -1,12 +1,14 @@
 import { Injectable } from '@angular/core';
 
 import { API_BASE_URL } from './api.config';
+import { SpecialCardPayload } from './board-tiles';
 
 export type GameWsEvent =
   | { type: 'state_snapshot'; game: any; players: any[]; properties?: any[] }
   | { type: 'dice_rolled'; seat_index: number; d1: number; d2: number; state_version: number }
   | { type: 'players_updated'; players: any[]; state_version: number }
   | { type: 'properties_updated'; properties: any[]; state_version: number }
+  | (SpecialCardPayload & { type: 'special_card_drawn' })
   | { type: 'turn_changed'; turn_seat_index: number; state_version: number }
   | { type: 'error'; message: string };
 

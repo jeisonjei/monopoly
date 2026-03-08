@@ -7,8 +7,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-monopoly}
       POSTGRES_USER: ${POSTGRES_USER:-monopoly}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-monopoly}
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       
@@ -33,10 +31,11 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@local.dev}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Never-contain-any-rails1!}
       DJANGO_DEBUG: ${DJANGO_DEBUG:-true}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,46.8.158.4,monopoly-game.online,www.monopoly-game.online}
       CORS_ORIGIN_ALLOW_ALL: ${CORS_ORIGIN_ALLOW_ALL:-true}
       EMAIL_HOST: mailhog
       EMAIL_PORT: 1025
-      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:8084}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-https://monopoly-game.online}
     command: sh -c "mkdir -p /var/log/monopoly && python manage.py migrate && python manage.py ensure_admin && python manage.py ensure_demo_users && gunicorn --timeout 90 --log-level debug --bind 0.0.0.0:3000 --access-logfile - --error-logfile - monopoly_server.asgi:application -k uvicorn.workers.UvicornWorker"
     ports:
       - "3003:3000"

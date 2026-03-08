@@ -1,0 +1,325 @@
+<div class="game">
+  <header class="top">
+    <div class="top-brand">
+      <strong>{{ i18n.t('app_title') }}</strong>
+      <span class="muted">{{ i18n.t('single_room') }}</span>
+    </div>
+
+    <div class="top-status" aria-label="Status Bar">
+      <span class="status-pill status-pill-turn" [class.status-pill-turn-active]="isYourTurn()">
+        {{ turnStatusText() }}
+      </span>
+      <span class="status-bar-turn-owner" [title]="turnStatusOwnerTitle()">{{ turnStatusOwnerLabel() }}</span>
+
+      <span class="status-pill">{{ statusConnectionLabel() }}</span>
+      <span class="status-pill">{{ i18n.t('dice') }} {{ statusDiceLabel() }}</span>
+      <span class="status-pill" *ngIf="yourPlayer() as me">{{ me.money }}</span>
+      <span class="status-pill" *ngIf="yourPlayer() as me">{{ statusTileLabel(me.position_index) }}</span>
+    </div>
+
+    <nav class="top-nav">
+      <a routerLink="/login" *ngIf="!auth.isAuthenticated()">{{ i18n.t('login') }}</a>
+      <span class="muted top-username" *ngIf="auth.isAuthenticated() && auth.username()">{{ auth.username() }}</span>
+      <div class="lang-switch" *ngIf="auth.isAuthenticated()">
+        <button type="button" [class.lang-switch-active]="i18n.language() === 'ru'" (click)="i18n.setLanguage('ru')">
+          {{ i18n.t('language_ru') }}
+        </button>
+        <button type="button" [class.lang-switch-active]="i18n.language() === 'en'" (click)="i18n.setLanguage('en')">
+          {{ i18n.t('language_en') }}
+        </button>
+      </div>
+      <button *ngIf="auth.isAuthenticated()" (click)="auth.logout()">{{ i18n.t('logout') }}</button>
+    </nav>
+  </header>
+
+  <div class="layout">
+    <section class="board-area">
+      <div class="cards-panel cards-panel-left">
+        <div class="cards-heading">{{ i18n.t('your_cards') }}</div>
+        <div class="cards-grid">
+          <div
+            class="property-card placeholder"
+            *ngFor="let card of myCardSlots()"
+            [class.owned]="!!card"
+            [class.property-card-special]="!!card && isSpecialOwnedCard(card.kind)"
+            [style.border-color]="card?.frameColor ?? null"
+          >
+            <ng-container *ngIf="card; else emptyMyCard">
+              <div class="property-card-header" [style.border-color]="card.frameColor">
+                <div
+                  class="property-card-band"
+                  [class.property-card-band-neutral]="card.bandColor === null"
+                  [style.background]="card.bandColor"
+                >
+                  {{ card.headerLabel }}
+                </div>
+                <div class="property-card-title">{{ card.title }}</div>
+              </div>
+              <div class="property-card-rent-row">
+                <span class="property-card-rent-label">{{ card.rentLabel }}</span>
+                <strong class="property-card-rent-value">{{ card.rent ?? '-' }}</strong>
+              </div>
+              <div class="property-card-kind" *ngIf="card.kindLabel">{{ card.kindLabel }}</div>
+              <div class="property-card-owner">{{ card.ownerName }}</div>
+              <div class="property-card-price-row">
+                <span>{{ i18n.t('price') }}</span>
+                <strong>{{ card.price ?? '-' }}</strong>
+              </div>
+            </ng-container>
+            <ng-template #emptyMyCard>
+              <div class="property-card-empty">{{ i18n.t('available_slot') }}</div>
+            </ng-template>
+          </div>
+        </div>
+      </div>
+
+      <section class="board">
+        <div class="board-wrap">
+          <div class="board-stage">
+            <div class="board-rotator" #boardSurface [style.transform]="boardTransform()">
+              <img class="board-img" src="/assets/board/board.jpg" alt="Board" />
+
+              <div class="tile-geometry-layer" *ngIf="markerCalibrationMode()">
+                <div
+                  class="tile-geometry-rect"
+                  *ngFor="let tileIndex of editableTileIndices()"
+                  [class.tile-geometry-rect-selected]="tileIndex === selectedMarkerTileIndex()"
+                  [style.left.%]="tileGeometry(tileIndex).leftPct"
+                  [style.top.%]="tileGeometry(tileIndex).topPct"
+                  [style.width.%]="tileGeometry(tileIndex).widthPct"
+                  [style.height.%]="tileGeometry(tileIndex).heightPct"
+                  [attr.aria-label]="'Tile ' + tileIndex + ' geometry'"
+                  (click)="selectMarkerTile(tileIndex)"
+                  (pointerdown)="startGeometryInteraction($event, tileIndex, 'move')"
+                >
+                  <span class="tile-geometry-label">{{ tileIndex }}</span>
+                  <button
+                    *ngIf="tileIndex === selectedMarkerTileIndex()"
+                    class="tile-geometry-handle tile-geometry-handle-nw"
+                    type="button"
+                    aria-label="Resize tile from top left"
+                    (click)="$event.stopPropagation()"
+                    (pointerdown)="startGeometryInteraction($event, tileIndex, 'resize-nw')"
+                  ></button>
+                  <button
+                    *ngIf="tileIndex === selectedMarkerTileIndex()"
+                    class="tile-geometry-handle tile-geometry-handle-ne"
+                    type="button"
+                    aria-label="Resize tile from top right"
+                    (click)="$event.stopPropagation()"
+                    (pointerdown)="startGeometryInteraction($event, tileIndex, 'resize-ne')"
+                  ></button>
+                  <button
+                    *ngIf="tileIndex === selectedMarkerTileIndex()"
+                    class="tile-geometry-handle tile-geometry-handle-sw"
+                    type="button"
+                    aria-label="Resize tile from bottom left"
+                    (click)="$event.stopPropagation()"
+                    (pointerdown)="startGeometryInteraction($event, tileIndex, 'resize-sw')"
+                  ></button>
+                  <button
+                    *ngIf="tileIndex === selectedMarkerTileIndex()"
+                    class="tile-geometry-handle tile-geometry-handle-se"
+                    type="button"
+                    aria-label="Resize tile from bottom right"
+                    (click)="$event.stopPropagation()"
+                    (pointerdown)="startGeometryInteraction($event, tileIndex, 'resize-se')"
+                  ></button>
+                </div>
+              </div>
+
+              <div
+                class="property-owner-marker"
+                *ngFor="let marker of ownedPropertyMarkers()"
+                [class.property-owner-marker-selected]="markerCalibrationMode() && marker.tileIndex === selectedMarkerTileIndex()"
+                [class.property-owner-marker-own]="isOwnSeat(marker.ownerSeat)"
+                [style.left.%]="marker.leftPct"
+                [style.top.%]="marker.topPct"
+                [style.background]="marker.color"
+                [title]="marker.title"
+                (click)="selectMarkerTile(marker.tileIndex)"
+              >
+                {{ marker.ownerSeat }}
+              </div>
+
+              <div
+                class="token"
+                *ngFor="let p of players()"
+                [class.token-own]="isOwnSeat(p.seat_index)"
+                [style.left.%]="playerTokenPoint(p.position_index).leftPct"
+                [style.top.%]="playerTokenPoint(p.position_index).topPct"
+                [style.background]="seatColor(p.seat_index)"
+                [title]="'Seat ' + p.seat_index + ' (tile ' + p.position_index + ')'"
+              >
+                {{ p.seat_index }}
+              </div>
+            </div>
+
+            <button class="rotate-board-btn" type="button" (click)="rotateBoard()" aria-label="Rotate board">
+              ↻
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <div
+        class="opponents-column"
+        [class.opponents-column-single]="opponentCount() <= 1"
+        [class.opponents-column-double]="opponentCount() === 2"
+        [class.opponents-column-scrollable]="opponentCount() >= 3"
+      >
+        <div
+          class="cards-panel cards-panel-right"
+          *ngFor="let group of opponentCardGroups()"
+          [style.--opponent-panel-min-height]="opponentPanelMinHeight(group) + 'px'"
+        >
+          <div class="cards-heading">{{ group.title }}</div>
+          <div class="cards-grid cards-grid-dense" [style.grid-template-columns]="opponentGridTemplateColumns(group)">
+            <div
+              class="property-card placeholder"
+              *ngFor="let card of group.slots"
+              [class.owned]="!!card"
+              [class.property-card-special]="!!card && isSpecialOwnedCard(card.kind)"
+              [style.border-color]="card?.frameColor ?? null"
+            >
+              <ng-container *ngIf="card; else emptyOpponentCard">
+                <div class="property-card-header" [style.border-color]="card.frameColor">
+                  <div
+                    class="property-card-band"
+                    [class.property-card-band-neutral]="card.bandColor === null"
+                    [style.background]="card.bandColor"
+                  >
+                    {{ card.headerLabel }}
+                  </div>
+                  <div class="property-card-title">{{ card.title }}</div>
+                </div>
+                <div class="property-card-rent-row">
+                  <span class="property-card-rent-label">{{ card.rentLabel }}</span>
+                  <strong class="property-card-rent-value">{{ card.rent ?? '-' }}</strong>
+                </div>
+                <div class="property-card-kind" *ngIf="card.kindLabel">{{ card.kindLabel }}</div>
+                <div class="property-card-owner">{{ card.ownerName }}</div>
+                <div class="property-card-price-row">
+                  <span>{{ i18n.t('price') }}</span>
+                  <strong>{{ card.price ?? '-' }}</strong>
+                </div>
+              </ng-container>
+              <ng-template #emptyOpponentCard>
+                <div class="property-card-empty">{{ i18n.t('available_slot') }}</div>
+              </ng-template>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div class="actions" *ngIf="auth.isAuthenticated()">
+        <button (click)="refreshState()">{{ i18n.t('refresh_state') }}</button>
+        <button (click)="connect()" [disabled]="connected() || wsStatus() === 'connecting'">{{ i18n.t('connect') }}</button>
+        <button (click)="resetGame()" [disabled]="!connected()">{{ i18n.t('new_game') }}</button>
+        <button (click)="claimFirstTurn()" [disabled]="!canClaimFirstTurn()">{{ i18n.t('my_turn_is_first') }}</button>
+        <button (click)="roll()" [disabled]="!connected()">{{ i18n.t('roll') }}</button>
+        <button (click)="buy()" [disabled]="!canBuy()">{{ i18n.t('buy') }}</button>
+        <button (click)="endTurn()" [disabled]="!connected()">{{ i18n.t('end_turn') }}</button>
+        <button type="button" (click)="toggleMarkerCalibration()" hidden>
+          {{ markerCalibrationMode() ? 'Exit calibration mode' : 'Calibrate board' }}
+        </button>
+      </div>
+
+      <div class="marker-calibration-panel" *ngIf="markerCalibrationMode()">
+        <h3>{{ i18n.t('board_calibration') }}</h3>
+        <div class="muted marker-calibration-hint">{{ i18n.t('drag_tile_hint') }}</div>
+        <label class="marker-calibration-label" for="marker-tile-select">{{ i18n.t('tile') }}</label>
+        <select
+          id="marker-tile-select"
+          class="marker-calibration-select"
+          [value]="selectedMarkerTileIndex()"
+          (change)="selectMarkerTile($any($event.target).value)"
+        >
+          <option *ngFor="let tileIndex of editableTileIndices()" [value]="tileIndex">
+            {{ tileIndex }} - {{ tileName(tileIndex) }}
+          </option>
+        </select>
+        <div class="marker-calibration-grid marker-calibration-grid-actions">
+          <button type="button" (click)="resetSelectedTileGeometry()">{{ i18n.t('reset_selected_tile') }}</button>
+          <button type="button" (click)="resetAllTileGeometry()">{{ i18n.t('reset_all_tiles') }}</button>
+          <button type="button" (click)="logBoardGeometrySnapshot()">{{ i18n.t('log_geometry') }}</button>
+          <button type="button" (click)="downloadBoardGeometrySnapshot()">{{ i18n.t('download_json_artifact') }}</button>
+          <button type="button" class="marker-calibration-finish" (click)="finishCalibration()">{{ i18n.t('finish_calibration') }}</button>
+        </div>
+        <div class="marker-calibration-values" *ngIf="selectedTileGeometry() as geometry">
+          {{ i18n.t('left') }}: {{ geometry.leftPct.toFixed(2) }} | {{ i18n.t('top') }}: {{ geometry.topPct.toFixed(2) }} | {{ i18n.t('width') }}: {{ geometry.widthPct.toFixed(2) }} | {{ i18n.t('height') }}: {{ geometry.heightPct.toFixed(2) }}
+        </div>
+        <div class="marker-calibration-values muted">{{ i18n.t('artifact_target') }}: {{ boardGeometryArtifactPath }}</div>
+        <div class="marker-calibration-values muted">{{ i18n.t('downloaded_file_name') }}: {{ boardGeometryFileName }}</div>
+        <div class="marker-calibration-logs" *ngIf="geometryDebugLog().length">
+          <div class="marker-calibration-log" *ngFor="let item of geometryDebugLog()">{{ item }}</div>
+        </div>
+      </div>
+
+      <h3>{{ i18n.t('dice_section') }}</h3>
+      <div class="dice">{{ dice1() ?? '-' }} : {{ dice2() ?? '-' }}</div>
+
+      <h3>{{ i18n.t('connection_section') }}</h3>
+      <div>{{ statusConnectionLabel() }}</div>
+
+      <h3>{{ i18n.t('turn_section') }}</h3>
+      <div>{{ i18n.t('seat') }}: {{ turnSeat() }}<span class="muted" *ngIf="turnPlayerName()">{{ turnPlayerName() }}</span></div>
+
+      <h3>{{ i18n.t('you_section') }}</h3>
+      <div *ngIf="yourSeat() !== null; else noSeat">{{ i18n.t('seat') }}: {{ yourSeat() }}<span class="muted" *ngIf="auth.username()">{{ auth.username() }}</span></div>
+      <ng-template #noSeat>
+        <div class="muted">{{ i18n.t('not_joined') }}</div>
+      </ng-template>
+
+      <div *ngIf="yourPlayer() as me">
+        <div>{{ i18n.t('money') }}: {{ me.money }}</div>
+        <div class="muted">{{ i18n.t('tile') }}: {{ me.position_index }}</div>
+      </div>
+
+      <div *ngIf="pendingTileInfo() as info">
+        <h3>{{ i18n.t('tile') }}</h3>
+        <div>{{ i18n.t('index') }}: {{ info.tile_index }}</div>
+        <div *ngIf="info.owner_seat_index !== null; else unowned">{{ i18n.t('owner_seat') }}: {{ info.owner_seat_index }}</div>
+        <ng-template #unowned>
+          <div class="muted">{{ i18n.t('unowned') }}</div>
+        </ng-template>
+        <div class="muted">{{ i18n.t('price') }}: {{ info.purchase_price }} | {{ i18n.t('rent') }}: {{ info.base_rent }}</div>
+      </div>
+
+      <h3>{{ i18n.t('players_section') }}</h3>
+      <div class="players" *ngIf="players().length; else noPlayers">
+        <div class="player" *ngFor="let p of players()">
+          <span>{{ i18n.t('seat') }} {{ p.seat_index }}<span class="muted">{{ p.username }}</span></span>
+          <span class="muted">{{ p.money }}</span>
+        </div>
+      </div>
+      <ng-template #noPlayers>
+        <div class="muted">{{ i18n.t('no_players_yet') }}</div>
+      </ng-template>
+
+      <h3>{{ i18n.t('activity') }}</h3>
+      <div class="players" *ngIf="actionLog().length; else noActivity">
+        <div class="muted" *ngFor="let item of actionLog()">{{ item }}</div>
+      </div>
+      <ng-template #noActivity>
+        <div class="muted">{{ i18n.t('no_actions_yet') }}</div>
+      </ng-template>
+
+      <p class="error" *ngIf="error()">{{ error() }}</p>
+    </aside>
+  </div>
+
+  <app-board-event-dialog
+    [open]="!!specialCard()"
+    [title]="specialCard()?.title ?? ''"
+    [kicker]="specialCard() ? specialCardKicker(specialCard()!) : ''"
+    [instruction]="specialCard()?.instruction ?? ''"
+    [actionLabel]="specialCard() ? specialCardActionLabel(specialCard()!) : ''"
+    [actionButtonLabel]="specialCard() ? specialCardActionButtonLabel(specialCard()!) : i18n.t('take_action')"
+    [actionPending]="specialCardActionPending()"
+    (closed)="closeSpecialCard()"
+    (actionTaken)="takeSpecialCardAction()"
+  />
+</div>

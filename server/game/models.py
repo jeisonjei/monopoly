@@ -11,6 +11,8 @@ class Game(models.Model):
     last_dice_1 = models.PositiveSmallIntegerField(null=True, blank=True)
     last_dice_2 = models.PositiveSmallIntegerField(null=True, blank=True)
     last_roll_at = models.DateTimeField(null=True, blank=True)
+    chance_deck = models.JSONField(default=list)
+    community_chest_deck = models.JSONField(default=list)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -23,6 +25,8 @@ class Game(models.Model):
             "last_dice_1": self.last_dice_1,
             "last_dice_2": self.last_dice_2,
             "last_roll_at": self.last_roll_at.isoformat() if self.last_roll_at else None,
+            "chance_deck": self.chance_deck,
+            "community_chest_deck": self.community_chest_deck,
         }
 
     @classmethod
@@ -48,8 +52,13 @@ class PlayerState(models.Model):
     money = models.IntegerField(default=1500)
     position_index = models.PositiveSmallIntegerField(default=0)
     pending_buy_tile_index = models.PositiveSmallIntegerField(null=True, blank=True)
+    pending_event_tile_index = models.PositiveSmallIntegerField(null=True, blank=True)
+    pending_event_kind = models.CharField(max_length=32, null=True, blank=True)
+    pending_event_card_id = models.CharField(max_length=64, null=True, blank=True)
     in_jail = models.BooleanField(default=False)
     jail_turns_left = models.PositiveSmallIntegerField(default=0)
+    chance_jail_free_cards = models.PositiveSmallIntegerField(default=0)
+    community_chest_jail_free_cards = models.PositiveSmallIntegerField(default=0)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -68,8 +77,13 @@ class PlayerState(models.Model):
             "money": self.money,
             "position_index": self.position_index,
             "pending_buy_tile_index": self.pending_buy_tile_index,
+            "pending_event_tile_index": self.pending_event_tile_index,
+            "pending_event_kind": self.pending_event_kind,
+            "pending_event_card_id": self.pending_event_card_id,
             "in_jail": self.in_jail,
             "jail_turns_left": self.jail_turns_left,
+            "chance_jail_free_cards": self.chance_jail_free_cards,
+            "community_chest_jail_free_cards": self.community_chest_jail_free_cards,
         }
 
     @classmethod
