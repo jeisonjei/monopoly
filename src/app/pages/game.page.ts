@@ -624,22 +624,52 @@ export class GamePage implements OnDestroy {
         verticalPosition: 'bottom'
       });
     }
+
+    this.playEventSounds(events);
   }
 
   private snackbarForEvent(event: ActivityEvent): { message: string } | null {
     if (event.type === 'player_received' && this.isOwnSeat(event.seatIndex)) {
-      return { message: `+${event.amount}` };
+      return { message: `${event.playerName} ${this.i18n.t('received_prefix')} ${event.amount}` };
     }
 
     if (event.type === 'player_paid' && this.isOwnSeat(event.seatIndex)) {
-      return { message: `-${event.amount}` };
+      return { message: `${event.playerName} ${this.i18n.t('paid_prefix')} ${event.amount}` };
+    }
+
+    if (event.type === 'rent_paid' && this.isOwnSeat(event.payerSeat)) {
+      return { message: `${event.payerName} ${this.i18n.t('paid_prefix')} ${event.amount} ${event.tileName} (${event.ownerName})` };
     }
 
     if (event.type === 'property_bought' && this.isOwnSeat(event.ownerSeat)) {
-      return { message: `${this.i18n.t('bought_prefix')} ${event.tileName}` };
+      return { message: `${this.playerNameForSeat(event.ownerSeat)} ${this.i18n.t('bought_prefix')} ${event.tileName}` };
     }
 
     return null;
+  }
+
+  private playEventSounds(events: ActivityEvent[]): void {
+    for (const event of events) {
+      if (event.type === 'property_bought' && this.isOwnSeat(event.ownerSeat)) {
+        this.playMoneySound('purchase');
+        return;
+      }
+
+      if (event.type === 'rent_paid' && this.isOwnSeat(event.payerSeat)) {
+        this.playMoneySound('rent_loss');
+        return;
+      }
+
+      if (event.type === 'player_paid' && this.isOwnSeat(event.seatIndex)) {
+        this.playMoneySound('loss');
+        return;
+      }
+
+      if (event.type === 'player_received' && this.isOwnSeat(event.seatIndex)) {
+        this.playMoneySound('gain');
+        return;
+      }
+    }
   }
 
   private activityMessage(event: ActivityEvent): string {
@@ -721,9 +751,6 @@ export class GamePage implements OnDestroy {
       const moneyDelta = (nextPlayer.money ?? 0) - (previousPlayer.money ?? 0);
       if (moneyDelta !== 0) {
         moneyDeltas.set(nextPlayer.seat_index, moneyDelta);
-        if (this.isOwnSeat(nextPlayer.seat_index)) {
-          this.playMoneySound(moneyDelta > 0 ? 'gain' : 'loss');
-        }
       }
     }
 
@@ -809,16 +836,39 @@ export class GamePage implements OnDestroy {
     return this.audioContext;
   }
 
-  private playMoneySound(kind: 'gain' | 'loss'): void {
+  private playMoneySound(kind: 'gain' | 'loss' | 'rent_loss' | 'purchase'): void {
     const context = this.ensureAudioContext();
     if (!context) {
       return;
     }
 
     const now = context.currentTime + 0.01;
-    const notes = kind === 'gain' ? [523.25, 659.25] : [349.23, 293.66];
-    notes.forEach((frequency, index) => {
-      this.scheduleTone(context, now + index * 0.08, frequency, 0.12, kind === 'gain' ? 'sine' : 'triangle', 0.035);
+    if (kind === 'gain') {
+      [784, 1046.5, 1318.51, 1567.98].forEach((frequency, index) => {
+        this.scheduleTone(context, now + index * 0.045, frequency, 0.18, 'sine', 0.05);
+      });
+      [523.25, 659.25, 783.99].forEach((frequency, index) => {
+        this.scheduleTone(context, now + 0.02 + index * 0.06, frequency, 0.22, 'triangle', 0.022);
+      });
+      return;
+    }
+
+    if (kind === 'purchase') {
+      [261.63, 329.63, 392, 523.25].forEach((frequency, index) => {
+        this.scheduleTone(context, now + index * 0.06, frequency, 0.18, 'triangle', 0.048);
+      });
+      return;
+    }
+
+    if (kind === 'rent_loss') {
+      [329.63, 277.18, 220].forEach((frequency, index) => {
+        this.scheduleTone(context, now + index * 0.07, frequency, 0.18, 'sawtooth', 0.05);
+      });
+      return;
+    }
+
+    [349.23, 293.66].forEach((frequency, index) => {
+      this.scheduleTone(context, now + index * 0.08, frequency, 0.14, 'triangle', 0.045);
     });
   }
 
@@ -830,7 +880,7 @@ export class GamePage implements OnDestroy {
 
     const now = context.currentTime + 0.01;
     [392, 523.25, 659.25].forEach((frequency, index) => {
-      this.scheduleTone(context, now + index * 0.07, frequency, 0.13, 'sine', 0.04);
+      this.scheduleTone(context, now + index * 0.07, frequency, 0.13, 'sine', 0.065);
     });
   }
 
