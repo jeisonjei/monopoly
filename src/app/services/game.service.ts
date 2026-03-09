@@ -2,11 +2,13 @@ import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 
 import { API_BASE_URL } from './api.config';
+import { TradeOfferPayload } from './ws.service';
 
 export type GameStateResponse = {
   game: any;
   players: any[];
   properties?: any[];
+  trade_offers?: TradeOfferPayload[];
   you: { seat_index: number };
 };
 

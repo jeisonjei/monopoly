@@ -3,12 +3,26 @@ import { Injectable } from '@angular/core';
 import { API_BASE_URL } from './api.config';
 import { SpecialCardPayload } from './board-tiles';
 
+export type TradeOfferPayload = {
+  id: number;
+  tile_index: number;
+  buyer_seat_index: number;
+  seller_seat_index: number;
+  offered_amount: number;
+  status: 'pending' | 'accepted' | 'rejected' | 'cancelled';
+  created_at: string | null;
+  resolved_at: string | null;
+};
+
 export type GameWsEvent =
-  | { type: 'state_snapshot'; game: any; players: any[]; properties?: any[] }
+  | { type: 'state_snapshot'; game: any; players: any[]; properties?: any[]; trade_offers?: TradeOfferPayload[] }
   | { type: 'game_updated'; game: any; state_version: number }
   | { type: 'dice_rolled'; seat_index: number; d1: number; d2: number; state_version: number }
   | { type: 'players_updated'; players: any[]; state_version: number }
   | { type: 'properties_updated'; properties: any[]; state_version: number }
+  | { type: 'trade_offers_updated'; trade_offers: TradeOfferPayload[]; state_version: number }
+  | { type: 'trade_offer_created'; trade_offer: TradeOfferPayload; state_version: number }
+  | { type: 'trade_offer_resolved'; trade_offer: TradeOfferPayload; decision: 'accept' | 'reject'; state_version: number }
   | (SpecialCardPayload & { type: 'special_card_drawn'; owner_seat_index?: number | null; state_version?: number })
   | { type: 'turn_changed'; turn_seat_index: number; state_version: number }
   | { type: 'error'; message: string };

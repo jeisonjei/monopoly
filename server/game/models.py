@@ -177,6 +177,7 @@ class PlayerState(models.Model):
 
                 inactive_seats = [player.seat_index for player in inactive_players]
                 PropertyState.objects.filter(game_id=game_id, owner_seat_index__in=inactive_seats).update(owner_seat_index=None, level=0, is_mortgaged=False)
+                TradeOffer.objects.filter(game_id=game_id).filter(models.Q(buyer_seat_index__in=inactive_seats) | models.Q(seller_seat_index__in=inactive_seats)).delete()
                 cls.objects.filter(id__in=[player.id for player in inactive_players]).delete()
 
         await _cleanup()
@@ -207,4 +208,37 @@ class PropertyState(models.Model):
             "base_rent": self.base_rent,
             "level": self.level,
             "is_mortgaged": self.is_mortgaged,
+        }
+
+
+class TradeOffer(models.Model):
+    game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name="trade_offers")
+    tile_index = models.PositiveSmallIntegerField()
+    buyer_seat_index = models.PositiveSmallIntegerField()
+    seller_seat_index = models.PositiveSmallIntegerField()
+    offered_amount = models.PositiveIntegerField()
+    status = models.CharField(max_length=16, default="pending")
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["game", "tile_index"],
+                condition=models.Q(status="pending"),
+                name="uniq_pending_trade_offer_per_property",
+            ),
+        ]
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "tile_index": self.tile_index,
+            "buyer_seat_index": self.buyer_seat_index,
+            "seller_seat_index": self.seller_seat_index,
+            "offered_amount": self.offered_amount,
+            "status": self.status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
         }

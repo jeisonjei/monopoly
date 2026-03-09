@@ -2,7 +2,7 @@ from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Game, PlayerState, PropertyState
+from .models import Game, PlayerState, PropertyState, TradeOffer
 
 
 class GameStateView(APIView):
@@ -49,11 +49,13 @@ class GameStateView(APIView):
         visible_player_ids.add(player.id)
         players = [p for p in all_players if p.id in visible_player_ids]
         properties = PropertyState.objects.filter(game=game).order_by("tile_index")
+        trade_offers = TradeOffer.objects.filter(game=game, status="pending").order_by("created_at")
         return Response(
             {
                 "game": game.to_dict(),
                 "players": [p.to_dict() for p in players],
                 "properties": [p.to_dict() for p in properties],
+                "trade_offers": [offer.to_dict() for offer in trade_offers],
                 "you": {"seat_index": player.seat_index},
             }
         )

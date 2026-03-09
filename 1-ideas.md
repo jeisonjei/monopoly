@@ -4,8 +4,9 @@
 - [x] Implement "mortgage" functionality. Player can mortgage properties to get money, but he needs to pay 10% more to unmortgage them. Add section below "possibility chips" with "mortgage property cards". Use small rectangle icons with appropriate colors. All card info should be located in the tooltip. Pressing this icons will show dialog "unmorgage this property? yes/no" with following appropriate logic.
 - [x] If there is several players' chips on the same tile - handle chips overlapping to show them all.
 - [x] Animate dices
-- [ ] Also animate dices on the status bar (same your excellent animation)
+a
 - [x] Animate players' chips movement. Movement should be pretty fast but noticable
 - [x] If user in the jail he still can make turn pressing "throw dices" button. Seems jail-skip-turn rule not applied. He should see snackbar "You in jail and skip turn" trying to press "throw dices" button in this case
 - [x] Make shackbars a little noticible, just a little. You decide which method to use
 - [x] Make money on the status-bar more notisable - bigger and with louder color since it is important information. 
+- [ ] When user on the tile with property buying which make color set complete he should be able to immediatelly increase property level not waiting for next turn. Also he should be able to buy as much levels as he can afford not waiting for next turn - in the current implementation he can buy one level per one turn

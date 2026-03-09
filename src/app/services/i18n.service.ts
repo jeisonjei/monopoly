@@ -151,7 +151,25 @@ type TranslationKey =
   | 'unmortgage_cost'
   | 'confirm_unmortgage_title'
   | 'confirm_unmortgage_message'
-  | 'confirm_unmortgage_apply';
+  | 'confirm_unmortgage_apply'
+  | 'trade_offer_amount_positive'
+  | 'trade_offer_drop_here'
+  | 'trade_offer_drag_hint'
+  | 'trade_offer_propose_title'
+  | 'trade_offer_propose_instruction'
+  | 'trade_offer_amount_label'
+  | 'trade_offer_suggest'
+  | 'trade_offer_pending'
+  | 'trade_offer_review_title'
+  | 'trade_offer_review_instruction'
+  | 'trade_offer_accept'
+  | 'trade_offer_reject'
+  | 'trade_offer_sent'
+  | 'trade_offer_accepted'
+  | 'trade_offer_rejected'
+  | 'trade_offer_cancelled'
+  | 'trade_offer_offer_for'
+  | 'trade_offer_by_player';
 
 const LANGUAGE_STORAGE_KEY = 'monopoly.language';
 
@@ -306,6 +324,24 @@ const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> = {
     confirm_unmortgage_title: 'Выкупить эту собственность?',
     confirm_unmortgage_message: 'Подтвердите выкуп карточки по цене с надбавкой 10%.',
     confirm_unmortgage_apply: 'Выкупить',
+    trade_offer_amount_positive: 'Введите сумму больше нуля.',
+    trade_offer_drop_here: 'Перетащите сюда карточку соперника, чтобы предложить выкуп.',
+    trade_offer_drag_hint: 'Перетащите карточку в вашу область карточек, чтобы предложить деньги владельцу.',
+    trade_offer_propose_title: 'Предложить выкуп карточки',
+    trade_offer_propose_instruction: 'Укажите, сколько вы готовы заплатить за эту карточку.',
+    trade_offer_amount_label: 'Сумма предложения',
+    trade_offer_suggest: 'Предложить',
+    trade_offer_pending: 'Ожидает решения владельца',
+    trade_offer_review_title: 'Предложение по карточке',
+    trade_offer_review_instruction: 'Игрок хочет купить у вас эту карточку. Примите или отклоните предложение.',
+    trade_offer_accept: 'Принять',
+    trade_offer_reject: 'Отклонить',
+    trade_offer_sent: 'Предложение отправлено владельцу карточки.',
+    trade_offer_accepted: 'Предложение принято.',
+    trade_offer_rejected: 'Предложение отклонено.',
+    trade_offer_cancelled: 'Предложение больше недоступно.',
+    trade_offer_offer_for: 'Предложение за карточку',
+    trade_offer_by_player: 'Игрок',
   },
   en: {
     app_title: 'Monopoly',
@@ -457,6 +493,24 @@ const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> = {
     confirm_unmortgage_title: 'Unmortgage this property?',
     confirm_unmortgage_message: 'Confirm buying this card back with the 10% premium applied.',
     confirm_unmortgage_apply: 'Unmortgage',
+    trade_offer_amount_positive: 'Enter an amount greater than zero.',
+    trade_offer_drop_here: 'Drag an opponent card here to suggest buying it.',
+    trade_offer_drag_hint: 'Drag a card into your card area to offer money to its owner.',
+    trade_offer_propose_title: 'Suggest buying this card',
+    trade_offer_propose_instruction: 'Enter how much you want to pay for this card.',
+    trade_offer_amount_label: 'Offer amount',
+    trade_offer_suggest: 'Suggest',
+    trade_offer_pending: 'Waiting for the owner to decide',
+    trade_offer_review_title: 'Card purchase offer',
+    trade_offer_review_instruction: 'A player wants to buy this card from you. Accept or reject the offer.',
+    trade_offer_accept: 'Accept',
+    trade_offer_reject: 'Reject',
+    trade_offer_sent: 'The offer was sent to the card owner.',
+    trade_offer_accepted: 'The offer was accepted.',
+    trade_offer_rejected: 'The offer was rejected.',
+    trade_offer_cancelled: 'The offer is no longer available.',
+    trade_offer_offer_for: 'Offer for card',
+    trade_offer_by_player: 'Player',
   },
 };
 

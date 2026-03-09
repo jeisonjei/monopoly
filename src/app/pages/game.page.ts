@@ -1,9 +1,11 @@
 import { Component, ElementRef, OnDestroy, inject, signal, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { CdkDragDrop, DragDropModule } from '@angular/cdk/drag-drop';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { RouterLink } from '@angular/router';
 
 import { BoardEventDialogComponent } from '../components/board-event-dialog.component';
+import { TradeOfferDialogComponent } from '../components/trade-offer-dialog.component';
 import { AuthService } from '../services/auth.service';
 import { I18nService } from '../services/i18n.service';
 import {
@@ -23,7 +25,7 @@ import {
   TileKind
 } from '../services/board-tiles';
 import { GameService } from '../services/game.service';
-import { WsService, GameWsEvent } from '../services/ws.service';
+import { WsService, GameWsEvent, TradeOfferPayload } from '../services/ws.service';
 import { getTilePoint } from '../services/board-coordinates';
 import {
   clampTileGeometry,
@@ -49,7 +51,7 @@ const PLAYER_CHIP_COLORS = ['#ff3b30', '#34c759', '#007aff', '#ffcc00', '#af52de
 
 @Component({
   selector: 'app-game-page',
-  imports: [CommonModule, RouterLink, BoardEventDialogComponent, MatSnackBarModule],
+  imports: [CommonModule, RouterLink, DragDropModule, BoardEventDialogComponent, TradeOfferDialogComponent, MatSnackBarModule],
   templateUrl: './game.page.html',
   styleUrl: './game.page.scss'
 })
@@ -75,10 +77,18 @@ export class GamePage implements OnDestroy {
   yourSeat = signal<number | null>(null);
   players = signal<any[]>([]);
   properties = signal<any[]>([]);
+  tradeOffers = signal<TradeOfferPayload[]>([]);
   actionLog = signal<string[]>([]);
   boardGeometry = signal<TileGeometryMap>(this.loadBoardGeometry());
   boardGeometryFileName = BOARD_GEOMETRY_FILE_NAME;
   boardGeometryArtifactPath = BOARD_GEOMETRY_ARTIFACT_PATH;
+  outgoingTradeCard = signal<PropertyCardVm | null>(null);
+  outgoingTradeSubmitting = signal(false);
+  pendingOutgoingTradeTileIndex = signal<number | null>(null);
+  tradeDecisionPending = signal(false);
+  tradeDragActive = signal(false);
+  tradeDropZoneActive = signal(false);
+  resolvingTradeTileIndex = signal<number | null>(null);
 
   private readonly boardSurface = viewChild<ElementRef<HTMLDivElement>>('boardSurface');
   private readonly snackBar = inject(MatSnackBar);
@@ -265,6 +275,7 @@ export class GamePage implements OnDestroy {
       this.yourSeat.set(state.you?.seat_index ?? null);
       this.players.set(state.players ?? []);
       this.properties.set(state.properties ?? []);
+      this.syncTradeOffers(state.trade_offers ?? []);
       this.syncAnimatedTokenTiles(state.players ?? []);
       this.actionLog.set([]);
       if (this.wsStatus() === 'disconnected') {
@@ -519,6 +530,108 @@ export class GamePage implements OnDestroy {
     this.mortgageDialogProperty.set(null);
   }
 
+  tradeDropListId(): string {
+    return 'my-cards-trade-drop-list';
+  }
+
+  opponentTradeListId(ownerSeat: number): string {
+    return `opponent-cards-${ownerSeat}`;
+  }
+
+  trackPropertyCardSlot(index: number, card: PropertyCardVm | null): number | string {
+    return card?.tileIndex ?? `slot-${index}`;
+  }
+
+  tradeConnectedDropListIds(): string[] {
+    return this.opponentCardGroups().map((group) => this.opponentTradeListId(group.ownerSeat));
+  }
+
+  onTradeDragStarted(card: PropertyCardVm): void {
+    if (!this.canTradeCard(card)) {
+      return;
+    }
+    this.tradeDragActive.set(true);
+    this.tradeDropZoneActive.set(false);
+  }
+
+  onTradeDragEnded(): void {
+    this.tradeDragActive.set(false);
+    this.tradeDropZoneActive.set(false);
+  }
+
+  onTradeDropZoneEntered(): void {
+    if (!this.tradeDragActive()) {
+      return;
+    }
+    this.tradeDropZoneActive.set(true);
+  }
+
+  onTradeDropZoneExited(): void {
+    this.tradeDropZoneActive.set(false);
+  }
+
+  onTradeCardDropped(event: CdkDragDrop<Array<PropertyCardVm | null>>): void {
+    this.tradeDragActive.set(false);
+    this.tradeDropZoneActive.set(false);
+
+    const card = event.item.data as PropertyCardVm | null;
+    if (!card) {
+      return;
+    }
+
+    const blockedReason = this.tradeBlockedReason(card);
+    if (blockedReason) {
+      this.showWarning(blockedReason);
+      return;
+    }
+
+    this.outgoingTradeCard.set(card);
+    this.outgoingTradeSubmitting.set(false);
+  }
+
+  closeOutgoingTradeDialog(): void {
+    if (this.outgoingTradeSubmitting()) {
+      return;
+    }
+    this.outgoingTradeCard.set(null);
+  }
+
+  submitTradeOffer(amount: number): void {
+    const card = this.outgoingTradeCard();
+    if (!card) {
+      return;
+    }
+
+    const blockedReason = this.tradeBlockedReason(card, amount);
+    if (blockedReason) {
+      this.showWarning(blockedReason);
+      return;
+    }
+
+    this.outgoingTradeSubmitting.set(true);
+    this.ws.send({ type: 'propose_property_trade', tile_index: card.tileIndex, offered_amount: amount });
+  }
+
+  acceptIncomingTradeOffer(): void {
+    const offer = this.incomingTradeOffer();
+    if (!offer) {
+      return;
+    }
+    this.tradeDecisionPending.set(true);
+    this.resolvingTradeTileIndex.set(offer.tile_index);
+    this.ws.send({ type: 'respond_property_trade', offer_id: offer.id, decision: 'accept' });
+  }
+
+  rejectIncomingTradeOffer(): void {
+    const offer = this.incomingTradeOffer();
+    if (!offer) {
+      return;
+    }
+    this.tradeDecisionPending.set(true);
+    this.resolvingTradeTileIndex.set(offer.tile_index);
+    this.ws.send({ type: 'respond_property_trade', offer_id: offer.id, decision: 'reject' });
+  }
+
   confirmUnmortgage(): void {
     const card = this.mortgageDialogProperty();
     if (!card) {
@@ -562,6 +675,7 @@ export class GamePage implements OnDestroy {
       this.hasGameStarted.set(!!ev.game.last_roll_at);
       this.players.set(ev.players ?? []);
       this.properties.set(ev.properties ?? []);
+      this.syncTradeOffers(ev.trade_offers ?? []);
       this.syncAnimatedTokenTiles(ev.players ?? []);
       this.recordActivity({ type: 'connected' });
     }
@@ -612,6 +726,28 @@ export class GamePage implements OnDestroy {
       }
     }
 
+    if (ev.type === 'trade_offers_updated') {
+      this.syncTradeOffers(ev.trade_offers ?? []);
+    }
+
+    if (ev.type === 'trade_offer_created') {
+      this.outgoingTradeSubmitting.set(false);
+      this.outgoingTradeCard.set(null);
+      this.pendingOutgoingTradeTileIndex.set(ev.trade_offer.tile_index);
+      this.showInfo(this.i18n.t('trade_offer_sent'));
+    }
+
+    if (ev.type === 'trade_offer_resolved') {
+      this.tradeDecisionPending.set(false);
+      this.resolvingTradeTileIndex.set(null);
+      this.pendingOutgoingTradeTileIndex.update((current) => current === ev.trade_offer.tile_index ? null : current);
+      if (ev.decision === 'accept') {
+        this.showInfo(this.i18n.t('trade_offer_accepted'));
+      } else {
+        this.showWarning(this.i18n.t('trade_offer_rejected'));
+      }
+    }
+
     if (ev.type === 'special_card_drawn') {
       this.specialCard.set({
         action: ev.action,
@@ -630,6 +766,9 @@ export class GamePage implements OnDestroy {
 
     if (ev.type === 'error') {
       this.specialCardActionPending.set(false);
+      this.outgoingTradeSubmitting.set(false);
+      this.tradeDecisionPending.set(false);
+      this.resolvingTradeTileIndex.set(null);
       this.error.set(ev.message);
       this.showWarning(ev.message);
     }
@@ -1020,6 +1159,123 @@ export class GamePage implements OnDestroy {
     return this.isYourTurn() ? 'It is currently your turn' : `It is currently ${this.turnStatusOwnerLabel()}'s turn`;
   }
 
+  incomingTradeOffer(): TradeOfferPayload | null {
+    const seat = this.yourSeat();
+    if (seat === null) {
+      return null;
+    }
+    return this.tradeOffers().find((offer) => offer.seller_seat_index === seat) ?? null;
+  }
+
+  incomingTradeCard(): PropertyCardVm | null {
+    const offer = this.incomingTradeOffer();
+    if (!offer) {
+      return null;
+    }
+    return this.propertyCards().find((card) => card.tileIndex === offer.tile_index) ?? null;
+  }
+
+  outgoingTradeDialogOpen(): boolean {
+    return this.outgoingTradeCard() !== null;
+  }
+
+  outgoingTradeSummary(): string {
+    const card = this.outgoingTradeCard();
+    if (!card) {
+      return '';
+    }
+    return `${this.i18n.t('trade_offer_offer_for')}: ${card.title}. ${card.ownerName}.`;
+  }
+
+  incomingTradeSummary(): string {
+    const offer = this.incomingTradeOffer();
+    const card = this.incomingTradeCard();
+    if (!offer || !card) {
+      return '';
+    }
+    const buyer = this.playerNameForSeat(offer.buyer_seat_index);
+    return `${buyer}. ${card.title}. ${this.i18n.t('money')}: ${offer.offered_amount}.`;
+  }
+
+  canTradeCard(card: PropertyCardVm | null): boolean {
+    return !this.tradeBlockedReason(card);
+  }
+
+  tradeBlockedReason(card: PropertyCardVm | null, offeredAmount?: number): string | null {
+    if (!card) {
+      return this.i18n.t('need_connection_first');
+    }
+
+    if (!this.connected()) {
+      return this.i18n.t('need_connection_first');
+    }
+
+    const me = this.yourPlayer();
+    if (!me) {
+      return this.i18n.t('need_connection_first');
+    }
+
+    if (me.is_bankrupt) {
+      return this.i18n.t('you_are_out_of_game');
+    }
+
+    if (this.gameState()?.status === 'finished') {
+      return this.i18n.t('game_finished');
+    }
+
+    if (card.ownerSeat === me.seat_index) {
+      return 'This property is already yours';
+    }
+
+    const owner = this.players().find((player) => player.seat_index === card.ownerSeat) ?? null;
+    if (!owner || owner.is_bankrupt || Number(owner.connection_count ?? 0) <= 0) {
+      return 'Property owner is not available';
+    }
+
+    if (card.isMortgaged) {
+      return 'Mortgaged properties cannot be traded';
+    }
+
+    if (card.isUpgradableStreet && card.level > 0) {
+      return 'Sell upgrades before trading this property';
+    }
+
+    if (card.isUpgradableStreet && this.colorSetHasUpgrades(card.tileIndex)) {
+      return 'Sell upgrades in this color set before trading this property';
+    }
+
+    if (this.hasPendingTradeOfferForTile(card.tileIndex)) {
+      return this.i18n.t('trade_offer_pending');
+    }
+
+    if (offeredAmount !== undefined) {
+      if (!Number.isFinite(offeredAmount) || offeredAmount <= 0) {
+        return this.i18n.t('trade_offer_amount_positive');
+      }
+
+      if (Number(me.money ?? 0) < offeredAmount) {
+        return 'Not enough money';
+      }
+    }
+
+    return null;
+  }
+
+  tradeCardTitle(card: PropertyCardVm): string {
+    const blockedReason = this.tradeBlockedReason(card);
+    if (blockedReason) {
+      return `${card.title}\n${blockedReason}`;
+    }
+    return `${card.title}\n${this.i18n.t('trade_offer_drag_hint')}`;
+  }
+
+  isTradePendingCard(card: PropertyCardVm | null): boolean {
+    if (!card) {
+      return false;
+    }
+    return this.hasPendingTradeOfferForTile(card.tileIndex) || this.pendingOutgoingTradeTileIndex() === card.tileIndex;
+  }
+
   statusConnectionLabel(): string {
     return this.wsStatus() === 'connected'
       ? this.i18n.t('connection_connected')
@@ -1096,6 +1352,15 @@ export class GamePage implements OnDestroy {
     }
 
     this.playEventSounds(events);
+  }
+
+  private showInfo(message: string): void {
+    this.snackBar.open(message, undefined, {
+      duration: 2400,
+      panelClass: ['game-snackbar'],
+      horizontalPosition: 'end',
+      verticalPosition: 'bottom'
+    });
   }
 
   private showWarning(message: string): void {
@@ -1664,6 +1929,51 @@ export class GamePage implements OnDestroy {
         };
       })
       .sort((a, b) => cardSortRank(a.kind) - cardSortRank(b.kind) || a.tileIndex - b.tileIndex);
+  }
+
+  private syncTradeOffers(offers: TradeOfferPayload[]): void {
+    const nextOffers = offers.filter((offer) => offer.status === 'pending');
+    const previousOutgoingTileIndex = this.pendingOutgoingTradeTileIndex();
+    const hadIncomingTrade = this.incomingTradeOffer() !== null;
+    const resolvingTileIndex = this.resolvingTradeTileIndex();
+    this.tradeOffers.set(nextOffers);
+
+    if (previousOutgoingTileIndex !== null && !nextOffers.some((offer) => offer.tile_index === previousOutgoingTileIndex && offer.buyer_seat_index === this.yourSeat())) {
+      this.pendingOutgoingTradeTileIndex.set(null);
+      if (resolvingTileIndex !== previousOutgoingTileIndex) {
+        this.showWarning(this.i18n.t('trade_offer_cancelled'));
+      }
+    }
+
+    const incoming = this.incomingTradeOffer();
+    if (!incoming) {
+      this.tradeDecisionPending.set(false);
+      if (hadIncomingTrade && resolvingTileIndex === null) {
+        this.showWarning(this.i18n.t('trade_offer_cancelled'));
+      }
+    }
+
+    const outgoingCard = this.outgoingTradeCard();
+    if (outgoingCard && this.tradeBlockedReason(outgoingCard) !== null) {
+      this.outgoingTradeCard.set(null);
+      this.outgoingTradeSubmitting.set(false);
+    }
+  }
+
+  private hasPendingTradeOfferForTile(tileIndex: number): boolean {
+    return this.tradeOffers().some((offer) => offer.tile_index === tileIndex);
+  }
+
+  private colorSetHasUpgrades(tileIndex: number): boolean {
+    const colorGroup = getTileColorGroup(tileIndex);
+    if (!colorGroup) {
+      return false;
+    }
+
+    return getColorGroupTiles(colorGroup).some((groupTileIndex) => {
+      const property = this.properties().find((item) => item.tile_index === groupTileIndex);
+      return Number(property?.level ?? 0) > 0;
+    });
   }
 
   private isColorSetCompleteForOwner(tileIndex: number, ownerSeat: number): boolean {

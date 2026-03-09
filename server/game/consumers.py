@@ -5,7 +5,7 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.utils import timezone
 
 from .board_tiles import create_shuffled_deck, create_special_card_payload, get_color_group, get_color_group_tiles, get_property_economics, get_street_estate, get_street_rent, get_tile_definition, is_ownable_tile, is_upgradable_street
-from .models import Game, PlayerState, PropertyState
+from .models import Game, PlayerState, PropertyState, TradeOffer
 
 
 class GameConsumer(AsyncJsonWebsocketConsumer):
@@ -192,6 +192,80 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             occupied = [p.seat_index for p in players if not p.is_bankrupt]
         return sorted(occupied)
 
+    async def _pending_trade_offers(self, game_id: int) -> list[TradeOffer]:
+        return [
+            offer async for offer in TradeOffer.objects.filter(game_id=game_id, status="pending").order_by("created_at").aiterator()
+        ]
+
+    async def _broadcast_trade_offers(self, game: Game) -> None:
+        offers = await self._pending_trade_offers(game.id)
+        await self.channel_layer.group_send(
+            self.group_name,
+            {
+                "type": "trade_offers_updated",
+                "trade_offers": [offer.to_dict() for offer in offers],
+                "state_version": game.state_version,
+            },
+        )
+
+    async def _clear_trade_offers_for_seats(self, game_id: int, seat_indexes: list[int]) -> None:
+        if not seat_indexes:
+            return
+        await TradeOffer.objects.filter(game_id=game_id, status="pending").filter(
+            buyer_seat_index__in=seat_indexes
+        ).aupdate(status="cancelled", resolved_at=timezone.now())
+        await TradeOffer.objects.filter(game_id=game_id, status="pending").filter(
+            seller_seat_index__in=seat_indexes
+        ).aupdate(status="cancelled", resolved_at=timezone.now())
+
+    async def _clear_trade_offers_for_tiles(self, game_id: int, tile_indexes: list[int]) -> None:
+        if not tile_indexes:
+            return
+        await TradeOffer.objects.filter(game_id=game_id, status="pending", tile_index__in=tile_indexes).aupdate(
+            status="cancelled",
+            resolved_at=timezone.now(),
+        )
+
+    async def _has_color_group_upgrades(self, game_id: int, tile_index: int) -> bool:
+        color_group = get_color_group(tile_index)
+        if not color_group:
+            return False
+        return await PropertyState.objects.filter(game_id=game_id, tile_index__in=get_color_group_tiles(color_group), level__gt=0).aexists()
+
+    async def _trade_blocked_reason(self, game: Game, buyer: PlayerState, prop: PropertyState, offered_amount: int) -> str | None:
+        if buyer.is_bankrupt:
+            return "You are out of the game"
+
+        if game.status == "finished":
+            return "Game is already finished"
+
+        if offered_amount <= 0:
+            return "Offer amount must be greater than zero"
+
+        if prop.owner_seat_index is None:
+            return "Property has no owner"
+
+        if prop.owner_seat_index == buyer.seat_index:
+            return "This property is already yours"
+
+        if buyer.money < offered_amount:
+            return "Not enough money"
+
+        tile = get_tile_definition(prop.tile_index)
+        if tile["kind"] not in {"property", "railroad", "utility"}:
+            return "This card cannot be traded"
+
+        if prop.is_mortgaged:
+            return "Mortgaged properties cannot be traded"
+
+        if tile["kind"] == "property" and is_upgradable_street(prop.tile_index):
+            if int(prop.level) > 0:
+                return "Sell upgrades before trading this property"
+            if await self._has_color_group_upgrades(game.id, prop.tile_index):
+                return "Sell upgrades in this color set before trading this property"
+
+        return None
+
     async def _broadcast_game(self, game: Game) -> None:
         await self.channel_layer.group_send(
             self.group_name,
@@ -234,6 +308,8 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
                 "state_version": game.state_version,
             },
         )
+
+        await self._broadcast_trade_offers(game)
 
         await self._broadcast_game(game)
 
@@ -297,6 +373,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
 
         if bankrupt_seats:
             await PropertyState.objects.filter(game_id=game.id, owner_seat_index__in=bankrupt_seats).aupdate(owner_seat_index=None, level=0, is_mortgaged=False)
+            await self._clear_trade_offers_for_seats(game.id, bankrupt_seats)
 
         remaining_players = [player for player in await PlayerState.list_for_game_async(game_id=game.id) if not player.is_bankrupt]
         status_changed = False
@@ -393,6 +470,10 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             await self._handle_reset_game()
         elif msg_type == "resolve_board_event":
             await self._handle_resolve_board_event()
+        elif msg_type == "propose_property_trade":
+            await self._handle_propose_property_trade(content)
+        elif msg_type == "respond_property_trade":
+            await self._handle_respond_property_trade(content)
 
     async def _ensure_player_seat(self):
         user = self.scope["user"]
@@ -441,6 +522,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
                 "game": game.to_dict(),
                 "players": self._serialize_players(players),
                 "properties": [p.to_dict() for p in properties],
+                "trade_offers": [offer.to_dict() for offer in await self._pending_trade_offers(game.id)],
             }
         )
 
@@ -509,6 +591,24 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
     def _unmortgage_cost(self, prop: PropertyState) -> int:
         mortgage_value = self._mortgage_value(prop)
         return int(math.ceil(mortgage_value * 1.1))
+
+    async def _can_continue_buying_landed_property(self, game: Game, player: PlayerState, prop: PropertyState) -> bool:
+        if prop.owner_seat_index != player.seat_index:
+            return False
+
+        if get_tile_definition(prop.tile_index)["kind"] != "property" or not is_upgradable_street(prop.tile_index):
+            return False
+
+        if prop.is_mortgaged:
+            return False
+
+        if int(prop.level) >= 5:
+            return False
+
+        if not await self._owner_has_full_color_set(game.id, player.seat_index, prop.tile_index):
+            return False
+
+        return player.money >= self._building_purchase_cost(prop.tile_index)
 
     async def _handle_roll_dice(self):
         user = self.scope["user"]
@@ -840,6 +940,129 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
         await game.asave(update_fields=["state_version"])
         await self._handle_post_action_updates(game)
 
+    async def _handle_propose_property_trade(self, content: dict):
+        user = self.scope["user"]
+        game = await Game.get_singleton_async()
+        buyer = await PlayerState.get_for_user_async(game_id=game.id, user_id=user.id)
+        if buyer is None:
+            return
+
+        tile_index = content.get("tile_index")
+        offered_amount = int(content.get("offered_amount") or 0)
+        if tile_index is None:
+            await self.send_json({"type": "error", "message": "Choose a property first"})
+            return
+
+        prop = await self._ensure_property_exists(game_id=game.id, tile_index=int(tile_index))
+        blocked_reason = await self._trade_blocked_reason(game, buyer, prop, offered_amount)
+        if blocked_reason:
+            await self.send_json({"type": "error", "message": blocked_reason})
+            return
+
+        existing_offer = await TradeOffer.objects.filter(game_id=game.id, tile_index=int(tile_index), status="pending").afirst()
+        if existing_offer is not None:
+            await self.send_json({"type": "error", "message": "There is already a pending offer for this property"})
+            return
+
+        seller = await PlayerState.objects.filter(game_id=game.id, seat_index=prop.owner_seat_index).afirst()
+        if seller is None or seller.is_bankrupt or seller.connection_count <= 0:
+            await self.send_json({"type": "error", "message": "Property owner is not available"})
+            return
+
+        offer = await TradeOffer.objects.acreate(
+            game_id=game.id,
+            tile_index=int(tile_index),
+            buyer_seat_index=buyer.seat_index,
+            seller_seat_index=seller.seat_index,
+            offered_amount=offered_amount,
+            status="pending",
+        )
+
+        game.state_version += 1
+        await game.asave(update_fields=["state_version"])
+        await self._broadcast_trade_offers(game)
+        await self.send_json({"type": "trade_offer_created", "trade_offer": offer.to_dict(), "state_version": game.state_version})
+
+    async def _handle_respond_property_trade(self, content: dict):
+        user = self.scope["user"]
+        game = await Game.get_singleton_async()
+        seller = await PlayerState.get_for_user_async(game_id=game.id, user_id=user.id)
+        if seller is None:
+            return
+
+        offer_id = content.get("offer_id")
+        decision = str(content.get("decision") or "").lower()
+        if offer_id is None or decision not in {"accept", "reject"}:
+            await self.send_json({"type": "error", "message": "Choose a valid trade decision"})
+            return
+
+        offer = await TradeOffer.objects.filter(game_id=game.id, id=int(offer_id), status="pending").afirst()
+        if offer is None:
+            await self.send_json({"type": "error", "message": "Trade offer is no longer available"})
+            return
+
+        if offer.seller_seat_index != seller.seat_index:
+            await self.send_json({"type": "error", "message": "This trade offer is not for you"})
+            return
+
+        if decision == "reject":
+            offer.status = "rejected"
+            offer.resolved_at = timezone.now()
+            await offer.asave(update_fields=["status", "resolved_at"])
+            game.state_version += 1
+            await game.asave(update_fields=["state_version"])
+            await self._broadcast_trade_offers(game)
+            await self.channel_layer.group_send(
+                self.group_name,
+                {"type": "trade_offer_resolved", "trade_offer": offer.to_dict(), "decision": "reject", "state_version": game.state_version},
+            )
+            return
+
+        buyer = await PlayerState.objects.filter(game_id=game.id, seat_index=offer.buyer_seat_index).afirst()
+        if buyer is None or buyer.is_bankrupt or buyer.connection_count <= 0:
+            await self.send_json({"type": "error", "message": "Buyer is not available"})
+            offer.status = "cancelled"
+            offer.resolved_at = timezone.now()
+            await offer.asave(update_fields=["status", "resolved_at"])
+            game.state_version += 1
+            await game.asave(update_fields=["state_version"])
+            await self._broadcast_trade_offers(game)
+            return
+
+        prop = await self._ensure_property_exists(game_id=game.id, tile_index=offer.tile_index)
+        blocked_reason = await self._trade_blocked_reason(game, buyer, prop, int(offer.offered_amount))
+        if blocked_reason:
+            await self.send_json({"type": "error", "message": blocked_reason})
+            offer.status = "cancelled"
+            offer.resolved_at = timezone.now()
+            await offer.asave(update_fields=["status", "resolved_at"])
+            game.state_version += 1
+            await game.asave(update_fields=["state_version"])
+            await self._broadcast_trade_offers(game)
+            return
+
+        prop.owner_seat_index = buyer.seat_index
+        prop.level = 0
+        prop.is_mortgaged = False
+        await prop.asave(update_fields=["owner_seat_index", "level", "is_mortgaged"])
+        buyer.money -= int(offer.offered_amount)
+        seller.money += int(offer.offered_amount)
+        await buyer.asave(update_fields=["money"])
+        await seller.asave(update_fields=["money"])
+
+        offer.status = "accepted"
+        offer.resolved_at = timezone.now()
+        await offer.asave(update_fields=["status", "resolved_at"])
+        await self._clear_trade_offers_for_tiles(game.id, [offer.tile_index])
+
+        game.state_version += 1
+        await game.asave(update_fields=["state_version"])
+        await self._handle_post_action_updates(game)
+        await self.channel_layer.group_send(
+            self.group_name,
+            {"type": "trade_offer_resolved", "trade_offer": offer.to_dict(), "decision": "accept", "state_version": game.state_version},
+        )
+
     async def _handle_buy_property(self):
         user = self.scope["user"]
         game = await Game.get_singleton_async()
@@ -871,6 +1094,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             return
 
         prop = await self._ensure_property_exists(game_id=game.id, tile_index=tile)
+        keep_buying_tile = False
         if prop.owner_seat_index is None:
             if player.money < prop.purchase_price:
                 await self.send_json({"type": "error", "message": "Not enough money"})
@@ -881,6 +1105,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             prop.is_mortgaged = False
             await prop.asave(update_fields=["owner_seat_index", "level", "is_mortgaged"])
             player.money -= int(prop.purchase_price)
+            keep_buying_tile = await self._can_continue_buying_landed_property(game, player, prop)
         else:
             if prop.owner_seat_index != player.seat_index:
                 player.pending_buy_tile_index = None
@@ -912,8 +1137,9 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             prop.level = int(prop.level) + 1
             await prop.asave(update_fields=["level"])
             player.money -= upgrade_cost
+            keep_buying_tile = await self._can_continue_buying_landed_property(game, player, prop)
 
-        player.pending_buy_tile_index = None
+        player.pending_buy_tile_index = tile if keep_buying_tile else None
         await player.asave(update_fields=["money", "pending_buy_tile_index"])
 
         game.state_version += 1
@@ -1090,6 +1316,8 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
                 prop.is_mortgaged = False
                 await prop.asave(update_fields=["owner_seat_index", "level", "is_mortgaged"])
 
+        await TradeOffer.objects.filter(game_id=game.id).adelete()
+
         next_turn = await self._get_next_occupied_seat(game.id, -1)
         game.turn_seat_index = next_turn
         game.winner_seat_index = None
@@ -1197,6 +1425,25 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             {
                 "type": "properties_updated",
                 "properties": event["properties"],
+                "state_version": event["state_version"],
+            }
+        )
+
+    async def trade_offers_updated(self, event):
+        await self.send_json(
+            {
+                "type": "trade_offers_updated",
+                "trade_offers": event["trade_offers"],
+                "state_version": event["state_version"],
+            }
+        )
+
+    async def trade_offer_resolved(self, event):
+        await self.send_json(
+            {
+                "type": "trade_offer_resolved",
+                "trade_offer": event["trade_offer"],
+                "decision": event["decision"],
                 "state_version": event["state_version"],
             }
         )
