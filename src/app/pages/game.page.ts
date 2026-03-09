@@ -1,6 +1,5 @@
 import { Component, ElementRef, OnDestroy, inject, signal, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { CdkDragDrop, DragDropModule } from '@angular/cdk/drag-drop';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { RouterLink } from '@angular/router';
 
@@ -51,7 +50,7 @@ const PLAYER_CHIP_COLORS = ['#ff3b30', '#34c759', '#007aff', '#ffcc00', '#af52de
 
 @Component({
   selector: 'app-game-page',
-  imports: [CommonModule, RouterLink, DragDropModule, BoardEventDialogComponent, TradeOfferDialogComponent, MatSnackBarModule],
+  imports: [CommonModule, RouterLink, BoardEventDialogComponent, TradeOfferDialogComponent, MatSnackBarModule],
   templateUrl: './game.page.html',
   styleUrl: './game.page.scss'
 })
@@ -89,8 +88,13 @@ export class GamePage implements OnDestroy {
   tradeDragActive = signal(false);
   tradeDropZoneActive = signal(false);
   resolvingTradeTileIndex = signal<number | null>(null);
+  draggingTradeTileIndex = signal<number | null>(null);
+  tradeGhostCard = signal<PropertyCardVm | null>(null);
+  tradeGhostLeft = signal(0);
+  tradeGhostTop = signal(0);
 
   private readonly boardSurface = viewChild<ElementRef<HTMLDivElement>>('boardSurface');
+  private readonly tradeDropZone = viewChild<ElementRef<HTMLDivElement>>('tradeDropZone');
   private readonly snackBar = inject(MatSnackBar);
   private activeGeometryInteraction: GeometryInteractionState | null = null;
   private readonly onWindowPointerMove = (event: PointerEvent): void => {
@@ -98,6 +102,13 @@ export class GamePage implements OnDestroy {
   };
   private readonly onWindowPointerUp = (): void => {
     this.stopGeometryInteraction();
+  };
+  private activeTradePointerId: number | null = null;
+  private readonly onWindowTradePointerMove = (event: PointerEvent): void => {
+    this.updateTradePointerDrag(event);
+  };
+  private readonly onWindowTradePointerUp = (event: PointerEvent): void => {
+    this.finishTradePointerDrag(event);
   };
   private audioContext: AudioContext | null = null;
   private readonly animatedTokenTiles = signal<Record<number, number>>({});
@@ -256,6 +267,7 @@ export class GamePage implements OnDestroy {
 
   ngOnDestroy(): void {
     this.stopGeometryInteraction();
+    this.stopTradePointerListeners();
     this.clearAllTokenAnimationTimeouts();
     this.clearDiceRollingTimeout();
   }
@@ -530,52 +542,66 @@ export class GamePage implements OnDestroy {
     this.mortgageDialogProperty.set(null);
   }
 
-  tradeDropListId(): string {
-    return 'my-cards-trade-drop-list';
-  }
-
-  opponentTradeListId(ownerSeat: number): string {
-    return `opponent-cards-${ownerSeat}`;
-  }
-
   trackPropertyCardSlot(index: number, card: PropertyCardVm | null): number | string {
     return card?.tileIndex ?? `slot-${index}`;
   }
 
-  tradeConnectedDropListIds(): string[] {
-    return this.opponentCardGroups().map((group) => this.opponentTradeListId(group.ownerSeat));
+  trackOpponentCardGroup(_: number, group: OpponentCardGroupVm): number {
+    return group.ownerSeat;
   }
 
-  onTradeDragStarted(card: PropertyCardVm): void {
+  onTradePointerStart(event: PointerEvent, card: PropertyCardVm | null): void {
+    if (!card) {
+      return;
+    }
     if (!this.canTradeCard(card)) {
       return;
     }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    this.activeTradePointerId = event.pointerId;
+    this.draggingTradeTileIndex.set(card.tileIndex);
+    this.tradeGhostCard.set(card);
+    this.tradeGhostLeft.set(event.clientX + 12);
+    this.tradeGhostTop.set(event.clientY + 12);
     this.tradeDragActive.set(true);
-    this.tradeDropZoneActive.set(false);
+    this.tradeDropZoneActive.set(this.isPointerInsideTradeDropZone(event.clientX, event.clientY));
+    window.addEventListener('pointermove', this.onWindowTradePointerMove);
+    window.addEventListener('pointerup', this.onWindowTradePointerUp);
+    window.addEventListener('pointercancel', this.onWindowTradePointerUp);
   }
 
-  onTradeDragEnded(): void {
-    this.tradeDragActive.set(false);
-    this.tradeDropZoneActive.set(false);
-  }
-
-  onTradeDropZoneEntered(): void {
-    if (!this.tradeDragActive()) {
+  private updateTradePointerDrag(event: PointerEvent): void {
+    if (!this.tradeDragActive() || this.activeTradePointerId !== event.pointerId) {
       return;
     }
-    this.tradeDropZoneActive.set(true);
+    this.tradeGhostLeft.set(event.clientX + 12);
+    this.tradeGhostTop.set(event.clientY + 12);
+    this.tradeDropZoneActive.set(this.isPointerInsideTradeDropZone(event.clientX, event.clientY));
   }
 
-  onTradeDropZoneExited(): void {
-    this.tradeDropZoneActive.set(false);
-  }
+  private finishTradePointerDrag(event: PointerEvent): void {
+    if (!this.tradeDragActive() || this.activeTradePointerId !== event.pointerId) {
+      return;
+    }
 
-  onTradeCardDropped(event: CdkDragDrop<Array<PropertyCardVm | null>>): void {
+    const card = this.tradeGhostCard();
+    const droppedInside = this.isPointerInsideTradeDropZone(event.clientX, event.clientY);
+
+    this.activeTradePointerId = null;
+    this.stopTradePointerListeners();
+    this.draggingTradeTileIndex.set(null);
     this.tradeDragActive.set(false);
     this.tradeDropZoneActive.set(false);
+    this.tradeGhostCard.set(null);
 
-    const card = event.item.data as PropertyCardVm | null;
     if (!card) {
+      return;
+    }
+
+    if (!droppedInside) {
       return;
     }
 
@@ -587,6 +613,21 @@ export class GamePage implements OnDestroy {
 
     this.outgoingTradeCard.set(card);
     this.outgoingTradeSubmitting.set(false);
+  }
+
+  private stopTradePointerListeners(): void {
+    window.removeEventListener('pointermove', this.onWindowTradePointerMove);
+    window.removeEventListener('pointerup', this.onWindowTradePointerUp);
+    window.removeEventListener('pointercancel', this.onWindowTradePointerUp);
+  }
+
+  private isPointerInsideTradeDropZone(clientX: number, clientY: number): boolean {
+    const element = this.tradeDropZone()?.nativeElement;
+    if (!element) {
+      return false;
+    }
+    const rect = element.getBoundingClientRect();
+    return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
   }
 
   closeOutgoingTradeDialog(): void {
@@ -742,7 +783,14 @@ export class GamePage implements OnDestroy {
       this.resolvingTradeTileIndex.set(null);
       this.pendingOutgoingTradeTileIndex.update((current) => current === ev.trade_offer.tile_index ? null : current);
       if (ev.decision === 'accept') {
-        this.showInfo(this.i18n.t('trade_offer_accepted'));
+        const yourSeat = this.yourSeat();
+        if (yourSeat !== null && ev.trade_offer.seller_seat_index === yourSeat) {
+          this.showInfo(`${this.i18n.t('trade_offer_accepted')} +${ev.trade_offer.offered_amount}`);
+        } else if (yourSeat !== null && ev.trade_offer.buyer_seat_index === yourSeat) {
+          this.showInfo(`${this.i18n.t('trade_offer_accepted')} -${ev.trade_offer.offered_amount}`);
+        } else {
+          this.showInfo(this.i18n.t('trade_offer_accepted'));
+        }
       } else {
         this.showWarning(this.i18n.t('trade_offer_rejected'));
       }
@@ -1228,7 +1276,7 @@ export class GamePage implements OnDestroy {
     }
 
     const owner = this.players().find((player) => player.seat_index === card.ownerSeat) ?? null;
-    if (!owner || owner.is_bankrupt || Number(owner.connection_count ?? 0) <= 0) {
+    if (!owner || owner.is_bankrupt || !owner.is_connected) {
       return 'Property owner is not available';
     }
 

@@ -53,19 +53,16 @@
   <div class="layout">
     <section class="board-area">
       <div
+        #tradeDropZone
         class="cards-panel cards-panel-left"
-        cdkDropList
-        [id]="tradeDropListId()"
-        [cdkDropListData]="myCardSlots()"
-        [cdkDropListConnectedTo]="tradeConnectedDropListIds()"
         [class.cards-panel-trade-active]="tradeDropZoneActive()"
-        (cdkDropListDropped)="onTradeCardDropped($event)"
-        (cdkDropListEntered)="onTradeDropZoneEntered()"
-        (cdkDropListExited)="onTradeDropZoneExited()"
       >
+        <div class="cards-trade-overlay" *ngIf="tradeDragActive()">
+          <div class="cards-trade-overlay-copy">{{ i18n.t('trade_offer_drop_here') }}</div>
+        </div>
         <div class="cards-heading">{{ i18n.t('your_cards') }}</div>
-        <div class="cards-trade-hint">{{ i18n.t('trade_offer_drop_here') }}</div>
-        <div class="cards-grid">
+        <div class="cards-trade-hint" *ngIf="!tradeDragActive()">{{ i18n.t('trade_offer_drop_here') }}</div>
+        <div class="cards-grid" *ngIf="!tradeDragActive()">
           <div
             class="property-card placeholder"
             *ngFor="let card of myCardSlots(); trackBy: trackPropertyCardSlot"
@@ -206,18 +203,11 @@
       >
         <div
           class="cards-panel cards-panel-right"
-          *ngFor="let group of opponentCardGroups()"
+          *ngFor="let group of opponentCardGroups(); trackBy: trackOpponentCardGroup"
           [style.--opponent-panel-min-height]="opponentPanelMinHeight(group) + 'px'"
         >
           <div class="cards-heading">{{ group.title }}</div>
-          <div
-            class="cards-grid cards-grid-dense"
-            cdkDropList
-            [id]="opponentTradeListId(group.ownerSeat)"
-            [cdkDropListData]="group.slots"
-            [cdkDropListConnectedTo]="[tradeDropListId()]"
-            [style.grid-template-columns]="opponentGridTemplateColumns(group)"
-          >
+          <div class="cards-grid cards-grid-dense" [style.grid-template-columns]="opponentGridTemplateColumns(group)">
             <div
               class="property-card placeholder"
               *ngFor="let card of group.slots; trackBy: trackPropertyCardSlot"
@@ -225,13 +215,10 @@
               [class.property-card-special]="!!card && isSpecialOwnedCard(card.kind)"
               [class.property-card-trade-enabled]="!!card && canTradeCard(card)"
               [class.property-card-trade-pending]="isTradePendingCard(card)"
+              [class.property-card-trade-origin]="!!card && draggingTradeTileIndex() === card.tileIndex"
               [style.border-color]="card?.frameColor ?? null"
               [title]="card ? tradeCardTitle(card) : null"
-              cdkDrag
-              [cdkDragData]="card"
-              [cdkDragDisabled]="!card || !canTradeCard(card)"
-              (cdkDragStarted)="card && onTradeDragStarted(card)"
-              (cdkDragEnded)="onTradeDragEnded()"
+              (pointerdown)="onTradePointerStart($event, card)"
             >
               <ng-container *ngIf="card; else emptyOpponentCard">
                 <div class="property-card-header" [style.border-color]="card.frameColor">
@@ -266,6 +253,43 @@
         </div>
       </div>
     </section>
+
+    <div
+      class="trade-ghost"
+      *ngIf="tradeGhostCard() as ghostCard"
+      [style.left.px]="tradeGhostLeft()"
+      [style.top.px]="tradeGhostTop()"
+    >
+      <div
+        class="property-card property-card-drag-preview"
+        [class.property-card-special]="isSpecialOwnedCard(ghostCard.kind)"
+        [style.border-color]="ghostCard.frameColor"
+      >
+        <div class="property-card-header" [style.border-color]="ghostCard.frameColor">
+          <div
+            class="property-card-band"
+            [class.property-card-band-neutral]="ghostCard.bandColor === null"
+            [style.background]="ghostCard.bandColor"
+          >
+            {{ ghostCard.headerLabel }}
+          </div>
+          <div class="property-card-title">{{ ghostCard.title }}</div>
+        </div>
+        <div class="property-card-rent-row">
+          <span class="property-card-rent-label">{{ ghostCard.rentLabel }}</span>
+          <strong class="property-card-rent-value">{{ ghostCard.rent ?? '-' }}</strong>
+        </div>
+        <div class="property-card-kind" *ngIf="ghostCard.isUpgradableStreet">{{ i18n.t('level_label') }}: {{ levelLabel(ghostCard.level) }}</div>
+        <div class="property-card-kind" *ngIf="ghostCard.isMortgaged">{{ i18n.t('mortgaged') }}</div>
+        <div class="property-card-kind" *ngIf="ghostCard.kindLabel">{{ ghostCard.kindLabel }}</div>
+        <div class="property-card-owner">{{ ghostCard.ownerName }}</div>
+        <div class="property-card-owner" *ngIf="ghostCard.nextUpgradeCost !== null">{{ i18n.t('next_upgrade_cost') }}: {{ ghostCard.nextUpgradeCost }}</div>
+        <div class="property-card-price-row">
+          <span>{{ i18n.t('price') }}</span>
+          <strong>{{ ghostCard.price ?? '-' }}</strong>
+        </div>
+      </div>
+    </div>
 
     <aside class="side">
       <div class="actions" *ngIf="auth.isAuthenticated()">

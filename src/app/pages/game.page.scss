@@ -8,6 +8,21 @@
   --side-panel-width: 280px;
 }
 
+.board,
+.board-wrap,
+.board-stage,
+.board-rotator,
+.board-img,
+.cards-grid,
+.property-card,
+.property-card *,
+.property-owner-marker,
+.token,
+.rotate-board-btn {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 .game {
   padding: 16px;
   max-height: 95vh;
@@ -174,6 +189,7 @@
 }
 
 .board-area {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(140px, 1fr) minmax(0, auto) minmax(140px, 1fr);
   gap: 16px;
@@ -183,6 +199,8 @@
 }
 
 .opponents-column {
+  position: relative;
+  z-index: 6;
   height: var(--opponents-default-height);
   max-height: var(--opponents-area-max-height);
   min-height: 320px;
@@ -211,12 +229,16 @@
 }
 
 .board {
+  position: relative;
+  z-index: 0;
   display: flex;
   align-items: flex-start;
   justify-content: center;
 }
 
 .cards-panel {
+  position: relative;
+  z-index: 3;
   height: var(--opponents-default-height);
   max-height: var(--opponents-area-max-height);
   min-height: 320px;
@@ -232,17 +254,52 @@
 }
 
 .cards-panel-left {
+  position: relative;
+  z-index: 7;
   overflow: hidden;
   transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+
+.cards-trade-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  border-radius: 8px;
+  background: rgba(148, 163, 184, 0.12);
+  pointer-events: none;
+}
+
+.cards-trade-overlay-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 72px;
+  min-width: min(180px, calc(100% - 24px));
+  padding: 12px 18px;
+  border: 2px dashed rgba(100, 116, 139, 0.8);
+  border-radius: 12px;
+  background: rgba(241, 245, 249, 0.9);
+  color: #475569;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
 }
 
 .cards-panel-trade-active {
   border-color: rgba(37, 99, 235, 0.48);
   background: linear-gradient(180deg, rgba(239, 246, 255, 0.94), rgba(226, 232, 240, 0.9));
   box-shadow: 0 10px 24px rgba(37, 99, 235, 0.14);
+  z-index: 12;
 }
 
 .cards-panel-right {
+  position: relative;
+  z-index: 6;
   height: 100%;
   max-height: 100%;
   min-height: 0;
@@ -260,6 +317,8 @@
   font-size: 12px;
   color: #64748b;
   margin-top: -6px;
+  position: relative;
+  z-index: 9;
 }
 
 .cards-grid {
@@ -274,6 +333,8 @@
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-gutter: stable;
+  position: relative;
+  z-index: 9;
 }
 
 .cards-grid-dense {
@@ -313,9 +374,10 @@
 
 .property-card-trade-enabled {
   cursor: grab;
+  touch-action: none;
 }
 
-.property-card-trade-enabled:hover {
+.property-card-trade-enabled:not(.cdk-drag-dragging):hover {
   transform: translateY(-1px);
   box-shadow: inset 0 0 0 1px rgba(48, 35, 20, 0.28), 0 8px 16px rgba(0,0,0,0.14);
 }
@@ -329,18 +391,51 @@
   filter: grayscale(1);
 }
 
-.cdk-drag-preview {
+.property-card-trade-origin {
+  border-style: dashed;
+  border-color: rgba(107, 114, 128, 0.9) !important;
+  background: linear-gradient(180deg, rgba(229, 231, 235, 0.96), rgba(209, 213, 219, 0.92));
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.35);
+}
+
+.property-card-drag-preview {
+  width: 100px;
+  max-width: 100px;
+  background: linear-gradient(180deg, rgba(226, 232, 240, 0.98), rgba(203, 213, 225, 0.96));
+  border-color: rgba(71, 85, 105, 0.9) !important;
+  filter: grayscale(0.35);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.34), inset 0 0 0 1px rgba(255,255,255,0.3);
+}
+
+.trade-ghost {
+  position: fixed;
+  z-index: 2147483647;
+  pointer-events: none;
+  transform: translate(0, 0);
+}
+
+.property-card-drag-preview .property-card-header {
+  background: rgba(255,255,255,0.2);
+}
+
+.property-card-drag-preview .property-card-title,
+.property-card-drag-preview .property-card-rent-value,
+.property-card-drag-preview .property-card-kind,
+.property-card-drag-preview .property-card-owner,
+.property-card-drag-preview .property-card-price-row,
+.property-card-drag-preview .property-card-rent-label,
+.property-card-drag-preview .property-card-band {
+  color: #1f2937;
+}
+
+.property-card-drag-placeholder {
+  width: 100%;
+  min-width: 0;
+  height: var(--property-card-height);
+  border: 2px dashed rgba(107, 114, 128, 0.9);
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(229, 231, 235, 0.96), rgba(209, 213, 219, 0.92));
   box-sizing: border-box;
-  border-radius: 6px;
-  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.26);
-}
-
-.cdk-drag-placeholder {
-  opacity: 0.2;
-}
-
-.cdk-drop-list-dragging .property-card:not(.cdk-drag-placeholder) {
-  transition: transform 140ms ease;
 }
 
 .property-card-header {
