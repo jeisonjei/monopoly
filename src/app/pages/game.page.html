@@ -19,8 +19,8 @@
       <span class="status-pill" [style.background]="statusConnectionPillBackground()" [style.color]="statusConnectionPillColor()">
         {{ statusConnectionLabel() }}
       </span>
-      <span class="status-pill">{{ i18n.t('dice') }} {{ statusDiceLabel() }}</span>
-      <span class="status-pill" *ngIf="yourPlayer() as me">{{ me.money }}</span>
+      <span class="status-pill status-pill-dice" [class.status-pill-dice-rolling]="diceRolling()">{{ i18n.t('dice') }} {{ statusDiceLabel() }}</span>
+      <span class="status-pill status-pill-money" *ngIf="yourPlayer() as me">{{ me.money }}</span>
       <span class="status-pill" *ngIf="yourPlayer() as me">{{ statusTileLabel(me.position_index) }}</span>
 
       <div class="top-activity" *ngIf="topStatusActivity().length">
@@ -77,8 +77,11 @@
                 <span class="property-card-rent-label">{{ card.rentLabel }}</span>
                 <strong class="property-card-rent-value">{{ card.rent ?? '-' }}</strong>
               </div>
+              <div class="property-card-kind" *ngIf="card.isUpgradableStreet">{{ i18n.t('level_label') }}: {{ levelLabel(card.level) }}</div>
+              <div class="property-card-kind" *ngIf="card.isMortgaged">{{ i18n.t('mortgaged') }}</div>
               <div class="property-card-kind" *ngIf="card.kindLabel">{{ card.kindLabel }}</div>
               <div class="property-card-owner">{{ card.ownerName }}</div>
+              <div class="property-card-owner" *ngIf="card.nextUpgradeCost !== null">{{ i18n.t('next_upgrade_cost') }}: {{ card.nextUpgradeCost }}</div>
               <div class="property-card-price-row">
                 <span>{{ i18n.t('price') }}</span>
                 <strong>{{ card.price ?? '-' }}</strong>
@@ -151,27 +154,28 @@
                 *ngFor="let marker of ownedPropertyMarkers()"
                 [class.property-owner-marker-selected]="markerCalibrationMode() && marker.tileIndex === selectedMarkerTileIndex()"
                 [class.property-owner-marker-own]="isOwnSeat(marker.ownerSeat)"
+                [class.property-owner-marker-mortgaged]="marker.isMortgaged"
                 [style.left.%]="marker.leftPct"
                 [style.top.%]="marker.topPct"
                 [style.background]="marker.color"
                 [title]="marker.title"
                 (click)="selectMarkerTile(marker.tileIndex)"
               >
-                {{ marker.ownerSeat }}
+                {{ marker.label }}
               </div>
 
               <div
                 class="token"
-                *ngFor="let p of visiblePlayers()"
-                [class.token-own]="isOwnSeat(p.seat_index)"
-                [style.left.%]="playerTokenPoint(p.position_index).leftPct"
-                [style.top.%]="playerTokenPoint(p.position_index).topPct"
-                [style.background]="seatColor(p.seat_index)"
-                [style.box-shadow]="tokenShadow(seatColor(p.seat_index), isOwnSeat(p.seat_index))"
-                [style.filter]="tokenFilter(seatColor(p.seat_index), isOwnSeat(p.seat_index))"
-                [title]="playerChipTitle(p)"
+                *ngFor="let token of tokenVms(); trackBy: trackToken"
+                [class.token-own]="token.isOwn"
+                [style.left.%]="token.leftPct"
+                [style.top.%]="token.topPct"
+                [style.background]="token.color"
+                [style.box-shadow]="tokenShadow(token.color, token.isOwn)"
+                [style.filter]="tokenFilter(token.color, token.isOwn)"
+                [title]="playerChipTitle(token.player)"
               >
-                {{ playerChipLabel(p) }}
+                {{ token.label }}
               </div>
             </div>
 
@@ -217,8 +221,11 @@
                   <span class="property-card-rent-label">{{ card.rentLabel }}</span>
                   <strong class="property-card-rent-value">{{ card.rent ?? '-' }}</strong>
                 </div>
+                <div class="property-card-kind" *ngIf="card.isUpgradableStreet">{{ i18n.t('level_label') }}: {{ levelLabel(card.level) }}</div>
+                <div class="property-card-kind" *ngIf="card.isMortgaged">{{ i18n.t('mortgaged') }}</div>
                 <div class="property-card-kind" *ngIf="card.kindLabel">{{ card.kindLabel }}</div>
                 <div class="property-card-owner">{{ card.ownerName }}</div>
+                <div class="property-card-owner" *ngIf="card.nextUpgradeCost !== null">{{ i18n.t('next_upgrade_cost') }}: {{ card.nextUpgradeCost }}</div>
                 <div class="property-card-price-row">
                   <span>{{ i18n.t('price') }}</span>
                   <strong>{{ card.price ?? '-' }}</strong>
@@ -238,13 +245,62 @@
         <button (click)="refreshState()">{{ i18n.t('refresh_state') }}</button>
         <button (click)="connect()" [disabled]="connected() || wsStatus() === 'connecting'">{{ i18n.t('connect') }}</button>
         <button (click)="resetGame()" [disabled]="!connected()">{{ i18n.t('new_game') }}</button>
-        <button (click)="claimFirstTurn()" [disabled]="!canClaimFirstTurn()">{{ i18n.t('my_turn_is_first') }}</button>
-        <button (click)="roll()" [disabled]="!connected()">{{ i18n.t('roll') }}</button>
-        <button (click)="buy()" [disabled]="!canBuy()">{{ i18n.t('buy') }}</button>
-        <button (click)="endTurn()" [disabled]="!connected()">{{ i18n.t('end_turn') }}</button>
+        <button (click)="claimFirstTurn()">{{ i18n.t('my_turn_is_first') }}</button>
+        <button (click)="roll()">{{ i18n.t('roll') }}</button>
+        <button (click)="buy()">{{ i18n.t('buy') }}</button>
+        <button (click)="endTurn()">{{ i18n.t('end_turn') }}</button>
         <button type="button" (click)="toggleMarkerCalibration()" hidden>
           {{ markerCalibrationMode() ? 'Exit calibration mode' : 'Calibrate board' }}
         </button>
+      </div>
+
+      <div class="side-section" *ngIf="yourPlayer() as me">
+        <h3>{{ i18n.t('stored_possibilities') }}</h3>
+        <div class="possibility-chips" *ngIf="hasStoredJailFreeCard(); else noStoredPossibilities">
+          <button
+            type="button"
+            class="possibility-chip"
+            [class.possibility-chip-active]="canUseJailFreeCardNow()"
+            [title]="i18n.t('get_out_of_jail_free_tooltip')"
+            (click)="useJailFreeCard()"
+          >
+            {{ i18n.t('get_out_of_jail_free') }} · {{ storedJailFreeCardCount() }}
+          </button>
+        </div>
+        <ng-template #noStoredPossibilities>
+          <div class="muted">{{ i18n.t('no_actions_yet') }}</div>
+        </ng-template>
+      </div>
+
+      <div class="side-section" *ngIf="yourPlayer()">
+        <h3>{{ i18n.t('mortgage_cards') }}</h3>
+        <div class="mortgage-card-list" *ngIf="mortgageCards().length; else noMortgageCards">
+          <button
+            type="button"
+            class="mortgage-card-chip"
+            *ngFor="let card of mortgageCards()"
+            [class.mortgage-card-chip-active]="card.isMortgaged"
+            [style.border-color]="card.bandColor ?? card.frameColor"
+            [title]="mortgageCardTooltip(card)"
+            (click)="openMortgageDialog(card)"
+          >
+            <span class="mortgage-card-chip-band" [style.background]="card.bandColor ?? card.frameColor"></span>
+            <span class="mortgage-card-chip-label">{{ card.title }}</span>
+            <span class="mortgage-card-chip-state">{{ card.isMortgaged ? i18n.t('mortgaged') : levelLabel(card.level) }}</span>
+          </button>
+        </div>
+        <ng-template #noMortgageCards>
+          <div class="muted">{{ i18n.t('no_mortgage_cards') }}</div>
+        </ng-template>
+      </div>
+
+      <div class="side-section" *ngIf="yourPlayer()?.in_jail">
+        <h3>{{ i18n.t('jail_actions') }}</h3>
+        <div class="jail-actions">
+          <button type="button" (click)="attemptJailRoll()">{{ i18n.t('attempt_jail_roll') }}</button>
+          <button type="button" (click)="payJailFine()">{{ i18n.t('pay_jail_fine') }}</button>
+          <button type="button" (click)="useJailFreeCard()">{{ i18n.t('use_jail_free_card') }}</button>
+        </div>
       </div>
 
       <div class="marker-calibration-panel" *ngIf="markerCalibrationMode()">
@@ -279,7 +335,7 @@
       </div>
 
       <h3>{{ i18n.t('dice_section') }}</h3>
-      <div class="dice">{{ dice1() ?? '-' }} : {{ dice2() ?? '-' }}</div>
+      <div class="dice" [class.dice-rolling]="diceRolling()">{{ dice1() ?? '-' }} : {{ dice2() ?? '-' }}</div>
 
       <h3>{{ i18n.t('you_section') }}</h3>
       <div *ngIf="yourSeat() !== null; else noSeat">{{ i18n.t('seat') }}: {{ yourSeat() }}<span class="muted" *ngIf="auth.username()">{{ auth.username() }}</span></div>
@@ -292,6 +348,26 @@
         <div class="muted">{{ i18n.t('tile') }}: {{ currentTileName(me.position_index) }}</div>
       </div>
 
+      <div class="side-section" *ngIf="yourPlayer()">
+        <h3>{{ i18n.t('color_sets') }}</h3>
+        <div class="color-set-list" *ngIf="colorSets().length; else noColorSets">
+          <div class="color-set-card" *ngFor="let colorSet of colorSets()" [class.color-set-card-complete]="colorSet.isComplete">
+            <div class="color-set-header">
+              <span class="color-set-swatch" [style.background]="colorSet.colorHex"></span>
+              <div class="color-set-header-copy">
+                <div class="color-set-status">{{ colorSetStatusLabel(colorSet) }}</div>
+                <div class="muted">{{ colorSet.ownedCount }} / {{ colorSet.requiredCount }}</div>
+              </div>
+            </div>
+            <div class="color-set-tiles">{{ colorSet.tileNames.join(' · ') }}</div>
+            <div class="muted" *ngIf="colorSet.isComplete">{{ i18n.t('double_rent_note') }}</div>
+          </div>
+        </div>
+        <ng-template #noColorSets>
+          <div class="muted">{{ i18n.t('no_color_sets_yet') }}</div>
+        </ng-template>
+      </div>
+
       <div *ngIf="pendingTileInfo() as info">
         <h3>{{ i18n.t('tile') }}</h3>
         <div>{{ i18n.t('index') }}: {{ info.tile_index }}</div>
@@ -300,6 +376,8 @@
           <div class="muted">{{ i18n.t('unowned') }}</div>
         </ng-template>
         <div class="muted">{{ i18n.t('price') }}: {{ info.purchase_price }} | {{ i18n.t('rent') }}: {{ info.base_rent }}</div>
+        <div class="muted">{{ i18n.t('level_label') }}: {{ levelLabel(info.level ?? 0) }}</div>
+        <div class="muted" *ngIf="info.is_mortgaged">{{ i18n.t('mortgaged') }}</div>
       </div>
 
       <h3>{{ i18n.t('players_section') }}</h3>
@@ -332,9 +410,38 @@
     [instruction]="specialCard()?.instruction ?? ''"
     [actionLabel]="specialCard() ? specialCardActionLabel(specialCard()!) : ''"
     [actionButtonLabel]="specialCard() ? specialCardActionButtonLabel(specialCard()!) : i18n.t('take_action')"
+    [secondaryActionLabel]="i18n.t('cancel')"
     [actionPending]="specialCardActionPending()"
     [readonlyMode]="specialCard()?.readonly ?? false"
     (closed)="closeSpecialCard()"
     (actionTaken)="takeSpecialCardAction()"
+  />
+
+  <app-board-event-dialog
+    [open]="finalDialogOpen()"
+    [title]="finalDialogTitle()"
+    [kicker]="i18n.t('warning_title')"
+    [instruction]="finalDialogInstruction()"
+    [actionLabel]="''"
+    [actionButtonLabel]="i18n.t('acknowledge')"
+    [secondaryActionLabel]="''"
+    [actionPending]="false"
+    [readonlyMode]="false"
+    (closed)="closeFinalDialog()"
+    (actionTaken)="closeFinalDialog()"
+  />
+
+  <app-board-event-dialog
+    [open]="mortgageDialogOpen()"
+    [title]="mortgageDialogTitle()"
+    [kicker]="i18n.t('warning_title')"
+    [instruction]="mortgageDialogInstruction()"
+    [actionLabel]="''"
+    [actionButtonLabel]="i18n.t('confirm_unmortgage_apply')"
+    [secondaryActionLabel]="i18n.t('cancel')"
+    [actionPending]="false"
+    [readonlyMode]="false"
+    (closed)="closeMortgageDialog()"
+    (actionTaken)="confirmUnmortgage()"
   />
 </div>

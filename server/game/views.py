@@ -18,7 +18,7 @@ class GameStateView(APIView):
         )
         if inactive_players:
             inactive_seats = [player.seat_index for player in inactive_players]
-            PropertyState.objects.filter(game=game, owner_seat_index__in=inactive_seats).update(owner_seat_index=None)
+            PropertyState.objects.filter(game=game, owner_seat_index__in=inactive_seats).update(owner_seat_index=None, level=0, is_mortgaged=False)
             PlayerState.objects.filter(id__in=[player.id for player in inactive_players]).delete()
 
         player = PlayerState.objects.filter(game=game, user=request.user).first()
@@ -38,7 +38,7 @@ class GameStateView(APIView):
         all_players = PlayerState.objects.select_related("user").filter(
             game=game,
         ).order_by("seat_index")
-        occupied = list(all_players.values_list("seat_index", flat=True))
+        occupied = list(all_players.filter(is_bankrupt=False).values_list("seat_index", flat=True))
         if occupied and game.turn_seat_index not in occupied:
             game.turn_seat_index = occupied[0]
             game.state_version += 1

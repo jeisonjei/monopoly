@@ -26,7 +26,7 @@ import { I18nService } from '../services/i18n.service';
           <button type="button" (click)="!readonlyMode() && actionTaken.emit()" [disabled]="readonlyMode() || actionPending()">
             {{ actionPending() ? i18n.t('applying') : actionButtonLabel() }}
           </button>
-          <button type="button" (click)="!readonlyMode() && closed.emit()" [disabled]="readonlyMode()">{{ i18n.t('cancel') }}</button>
+          <button type="button" *ngIf="secondaryActionLabel()" (click)="!readonlyMode() && closed.emit()" [disabled]="readonlyMode()">{{ secondaryActionLabel() }}</button>
         </div>
       </div>
     </div>
@@ -156,6 +156,7 @@ export class BoardEventDialogComponent {
   readonly instruction = input.required<string>();
   readonly actionLabel = input<string>('');
   readonly actionButtonLabel = input('');
+  readonly secondaryActionLabel = input<string>('');
   readonly actionPending = input(false);
   readonly readonlyMode = input(false);
 

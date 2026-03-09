@@ -109,7 +109,49 @@ type TranslationKey =
   | 'received_prefix'
   | 'paid_prefix'
   | 'bought_prefix'
-  | 'owns_suffix';
+  | 'owns_suffix'
+  | 'warning_title'
+  | 'jail_actions'
+  | 'attempt_jail_roll'
+  | 'pay_jail_fine'
+  | 'use_jail_free_card'
+  | 'stored_possibilities'
+  | 'get_out_of_jail_free'
+  | 'get_out_of_jail_free_tooltip'
+  | 'game_won_title'
+  | 'game_won_message'
+  | 'game_lost_title'
+  | 'game_lost_message'
+  | 'acknowledge'
+  | 'need_connection_first'
+  | 'wait_for_your_turn'
+  | 'need_buyable_tile'
+  | 'first_turn_already_locked'
+  | 'you_are_in_jail'
+  | 'choose_jail_action'
+  | 'must_roll_again_after_double'
+  | 'you_are_out_of_game'
+  | 'game_finished'
+  | 'not_in_jail'
+  | 'no_jail_free_card'
+  | 'color_sets'
+  | 'no_color_sets_yet'
+  | 'complete_set'
+  | 'incomplete_set'
+  | 'double_rent_note'
+  | 'mortgage_cards'
+  | 'no_mortgage_cards'
+  | 'mortgaged'
+  | 'level_label'
+  | 'base_level'
+  | 'hotel_level'
+  | 'next_upgrade_cost'
+  | 'building_cost'
+  | 'mortgage_value'
+  | 'unmortgage_cost'
+  | 'confirm_unmortgage_title'
+  | 'confirm_unmortgage_message'
+  | 'confirm_unmortgage_apply';
 
 const LANGUAGE_STORAGE_KEY = 'monopoly.language';
 
@@ -222,6 +264,48 @@ const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> = {
     paid_prefix: 'заплатил',
     bought_prefix: 'купил',
     owns_suffix: 'владеет',
+    warning_title: 'Предупреждение',
+    jail_actions: 'Действия в тюрьме',
+    attempt_jail_roll: 'Пробовать дубль',
+    pay_jail_fine: 'Заплатить 50',
+    use_jail_free_card: 'Использовать выход из тюрьмы',
+    stored_possibilities: 'Сохранённые возможности',
+    get_out_of_jail_free: 'Выход из тюрьмы',
+    get_out_of_jail_free_tooltip: 'Сохранённая карта: выйти из тюрьмы бесплатно. Можно применить, когда ваш игрок находится в тюрьме.',
+    game_won_title: 'Вы победили',
+    game_won_message: 'Вы остались последним не разорившимся игроком.',
+    game_lost_title: 'Вы проиграли',
+    game_lost_message: 'Ваш игрок выбыл из игры и больше не может выполнять ходы.',
+    acknowledge: 'Понятно',
+    need_connection_first: 'Сначала подключитесь к игровой комнате.',
+    wait_for_your_turn: 'Сейчас не ваш ход.',
+    need_buyable_tile: 'Сейчас нечего покупать.',
+    first_turn_already_locked: 'Первый ход уже закреплён.',
+    you_are_in_jail: 'Ваш игрок находится в тюрьме.',
+    choose_jail_action: 'Сначала выберите действие для выхода из тюрьмы.',
+    must_roll_again_after_double: 'У вас дубль — сначала выполните дополнительный бросок.',
+    you_are_out_of_game: 'Ваш игрок уже выбыл из игры.',
+    game_finished: 'Игра уже завершена.',
+    not_in_jail: 'Ваш игрок сейчас не в тюрьме.',
+    no_jail_free_card: 'У вас нет сохранённой карты выхода из тюрьмы.',
+    color_sets: 'Цветовые наборы',
+    no_color_sets_yet: 'Пока нет собранных цветовых наборов.',
+    complete_set: 'Набор собран',
+    incomplete_set: 'Набор не собран',
+    double_rent_note: 'Базовая рента на улицах этого набора удваивается.',
+    mortgage_cards: 'Заложенные и доступные для залога карточки',
+    no_mortgage_cards: 'Сейчас нет подходящих карточек для залога.',
+    mortgaged: 'Заложено',
+    level_label: 'Уровень',
+    base_level: 'База',
+    hotel_level: 'Отель',
+    next_upgrade_cost: 'Цена следующего улучшения',
+    building_cost: 'Цена дома/отеля',
+    mortgage_value: 'Сумма залога',
+    unmortgage_cost: 'Цена выкупа',
+    confirm_unmortgage_title: 'Выкупить эту собственность?',
+    confirm_unmortgage_message: 'Подтвердите выкуп карточки по цене с надбавкой 10%.',
+    confirm_unmortgage_apply: 'Выкупить',
   },
   en: {
     app_title: 'Monopoly',
@@ -331,6 +415,48 @@ const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> = {
     paid_prefix: 'paid',
     bought_prefix: 'bought',
     owns_suffix: 'owns',
+    warning_title: 'Warning',
+    jail_actions: 'Jail actions',
+    attempt_jail_roll: 'Try for doubles',
+    pay_jail_fine: 'Pay 50',
+    use_jail_free_card: 'Use jail-free card',
+    stored_possibilities: 'Stored possibilities',
+    get_out_of_jail_free: 'Get out of jail',
+    get_out_of_jail_free_tooltip: 'Stored card: get out of jail free. You can apply it when your player is in jail.',
+    game_won_title: 'You won',
+    game_won_message: 'You are the last player who did not go bankrupt.',
+    game_lost_title: 'You lost',
+    game_lost_message: 'Your player is out of the game and can no longer take turns.',
+    acknowledge: 'OK',
+    need_connection_first: 'Connect to the game room first.',
+    wait_for_your_turn: 'It is not your turn right now.',
+    need_buyable_tile: 'There is nothing to buy right now.',
+    first_turn_already_locked: 'The first turn has already been locked in.',
+    you_are_in_jail: 'Your player is in jail.',
+    choose_jail_action: 'Choose a jail action first.',
+    must_roll_again_after_double: 'You rolled doubles — take the extra roll first.',
+    you_are_out_of_game: 'Your player is already out of the game.',
+    game_finished: 'The game is already finished.',
+    not_in_jail: 'Your player is not in jail right now.',
+    no_jail_free_card: 'You do not have a stored get out of jail free card.',
+    color_sets: 'Color sets',
+    no_color_sets_yet: 'No completed color sets yet.',
+    complete_set: 'Set complete',
+    incomplete_set: 'Set incomplete',
+    double_rent_note: 'Base rent on streets in this set is doubled.',
+    mortgage_cards: 'Mortgaged and mortgage-ready cards',
+    no_mortgage_cards: 'There are no mortgage-eligible cards right now.',
+    mortgaged: 'Mortgaged',
+    level_label: 'Level',
+    base_level: 'Base',
+    hotel_level: 'Hotel',
+    next_upgrade_cost: 'Next upgrade cost',
+    building_cost: 'House/hotel cost',
+    mortgage_value: 'Mortgage value',
+    unmortgage_cost: 'Unmortgage cost',
+    confirm_unmortgage_title: 'Unmortgage this property?',
+    confirm_unmortgage_message: 'Confirm buying this card back with the 10% premium applied.',
+    confirm_unmortgage_apply: 'Unmortgage',
   },
 };
 

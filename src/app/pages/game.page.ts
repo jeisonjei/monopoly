@@ -11,7 +11,13 @@ import {
   boardEventActionLabel,
   boardEventKicker,
   cardSortRank,
+  getColorGroupTiles,
+  getStreetEstate,
+  getStreetRent,
   getTileDefinition,
+  getTileColorGroup,
+  isUpgradableStreet,
+  PropertyColorGroup,
   SpecialCardPayload,
   tileKindLabel,
   TileKind
@@ -34,6 +40,10 @@ const BOARD_GEOMETRY_STORAGE_KEY = 'monopoly.board-geometry';
 const BOARD_GEOMETRY_FILE_NAME = 'board-geometry.json';
 const BOARD_GEOMETRY_ARTIFACT_PATH = 'src/app/services/board-geometry.json';
 const BOARD_GEOMETRY_MIN_SIZE_PCT = 2;
+const TOKEN_STACK_RADIUS_PCT = 1.8;
+const TOKEN_MOVE_STEP_MS = 110;
+const TOKEN_MOVE_DIRECT_STEP_MS = 140;
+const DICE_ROLL_ANIMATION_MS = 700;
 
 const PLAYER_CHIP_COLORS = ['#ff3b30', '#34c759', '#007aff', '#ffcc00', '#af52de', '#ff9500'] as const;
 
@@ -46,8 +56,11 @@ const PLAYER_CHIP_COLORS = ['#ff3b30', '#34c759', '#007aff', '#ffcc00', '#af52de
 export class GamePage implements OnDestroy {
   connected = signal(false);
   error = signal<string | null>(null);
+  gameState = signal<any | null>(null);
   specialCard = signal<SpecialCardVm | null>(null);
   specialCardActionPending = signal(false);
+  finalDialogDismissed = signal(false);
+  mortgageDialogProperty = signal<PropertyCardVm | null>(null);
   markerCalibrationMode = signal(false);
   selectedMarkerTileIndex = signal(1);
   geometryDebugLog = signal<string[]>([]);
@@ -55,6 +68,7 @@ export class GamePage implements OnDestroy {
 
   dice1 = signal<number | null>(null);
   dice2 = signal<number | null>(null);
+  diceRolling = signal(false);
   hasGameStarted = signal(false);
   boardRotation = signal(0);
   turnSeat = signal<number>(0);
@@ -76,6 +90,9 @@ export class GamePage implements OnDestroy {
     this.stopGeometryInteraction();
   };
   private audioContext: AudioContext | null = null;
+  private readonly animatedTokenTiles = signal<Record<number, number>>({});
+  private readonly tokenAnimationTimeouts = new Map<number, number[]>();
+  private diceRollingTimeoutId: number | null = null;
 
   constructor(
     public readonly auth: AuthService,
@@ -88,8 +105,149 @@ export class GamePage implements OnDestroy {
     }
   }
 
+  private animatePlayersToPositions(previousPlayers: any[], nextPlayers: any[]): void {
+    for (const player of nextPlayers) {
+      const previousPlayer = previousPlayers.find((item) => item.seat_index === player.seat_index) ?? null;
+      if (!previousPlayer) {
+        this.setAnimatedTokenTile(player.seat_index, player.position_index);
+        continue;
+      }
+
+      const previousTileIndex = this.animatedTokenTiles()[player.seat_index] ?? previousPlayer.position_index;
+      const nextTileIndex = Number(player.position_index ?? 0);
+      if (previousTileIndex === nextTileIndex) {
+        this.setAnimatedTokenTile(player.seat_index, nextTileIndex);
+        continue;
+      }
+
+      this.scheduleTokenAnimation(player.seat_index, this.buildTokenPath(previousTileIndex, nextTileIndex));
+    }
+  }
+
+  private syncAnimatedTokenTiles(players: any[]): void {
+    const next: Record<number, number> = {};
+    for (const player of players) {
+      next[player.seat_index] = Number(player.position_index ?? 0);
+    }
+    this.animatedTokenTiles.set(next);
+  }
+
+  private animatedTokenTileIndex(player: { seat_index: number; position_index: number }): number {
+    return this.animatedTokenTiles()[player.seat_index] ?? Number(player.position_index ?? 0);
+  }
+
+  private withTokenStackOffset(token: TokenVm, index: number, total: number): TokenVm {
+    if (total <= 1) {
+      return token;
+    }
+
+    if (total === 2) {
+      const direction = index === 0 ? -1 : 1;
+      return {
+        ...token,
+        leftPct: token.leftPct + direction * TOKEN_STACK_RADIUS_PCT,
+        topPct: token.topPct,
+      };
+    }
+
+    const angle = (-Math.PI / 2) + (index * (Math.PI * 2)) / total;
+    return {
+      ...token,
+      leftPct: token.leftPct + Math.cos(angle) * TOKEN_STACK_RADIUS_PCT,
+      topPct: token.topPct + Math.sin(angle) * TOKEN_STACK_RADIUS_PCT,
+    };
+  }
+
+  private buildTokenPath(fromTileIndex: number, toTileIndex: number): number[] {
+    const from = normalizeTileIndex(fromTileIndex);
+    const to = normalizeTileIndex(toTileIndex);
+    if (from === to) {
+      return [to];
+    }
+
+    if (to === 10 && from !== 10) {
+      return [10];
+    }
+
+    if (to < from && from - to <= 3) {
+      const path: number[] = [];
+      for (let current = from - 1; current >= to; current -= 1) {
+        path.push(normalizeTileIndex(current));
+      }
+      return path;
+    }
+
+    const path: number[] = [];
+    let current = from;
+    while (current !== to) {
+      current = normalizeTileIndex(current + 1);
+      path.push(current);
+      if (path.length > 40) {
+        break;
+      }
+    }
+    return path;
+  }
+
+  private scheduleTokenAnimation(seatIndex: number, path: number[]): void {
+    this.clearTokenAnimationTimeouts(seatIndex);
+    if (!path.length) {
+      return;
+    }
+
+    const timeouts: number[] = [];
+    path.forEach((tileIndex, stepIndex) => {
+      const isDirect = path.length === 1;
+      const timeoutId = window.setTimeout(() => {
+        this.setAnimatedTokenTile(seatIndex, tileIndex);
+      }, stepIndex * (isDirect ? TOKEN_MOVE_DIRECT_STEP_MS : TOKEN_MOVE_STEP_MS));
+      timeouts.push(timeoutId);
+    });
+    this.tokenAnimationTimeouts.set(seatIndex, timeouts);
+  }
+
+  private setAnimatedTokenTile(seatIndex: number, tileIndex: number): void {
+    const normalizedSeatIndex = Number(seatIndex);
+    this.animatedTokenTiles.update((current) => ({
+      ...current,
+      [normalizedSeatIndex]: normalizeTileIndex(tileIndex),
+    }));
+  }
+
+  private clearTokenAnimationTimeouts(seatIndex: number): void {
+    const timeouts = this.tokenAnimationTimeouts.get(seatIndex) ?? [];
+    for (const timeoutId of timeouts) {
+      window.clearTimeout(timeoutId);
+    }
+    this.tokenAnimationTimeouts.delete(seatIndex);
+  }
+
+  private clearAllTokenAnimationTimeouts(): void {
+    for (const seatIndex of this.tokenAnimationTimeouts.keys()) {
+      this.clearTokenAnimationTimeouts(seatIndex);
+    }
+  }
+
+  private startDiceRollingAnimation(): void {
+    this.diceRolling.set(true);
+    this.clearDiceRollingTimeout();
+    this.diceRollingTimeoutId = window.setTimeout(() => {
+      this.diceRolling.set(false);
+      this.diceRollingTimeoutId = null;
+    }, DICE_ROLL_ANIMATION_MS);
+  }
+
+  private clearDiceRollingTimeout(): void {
+    if (this.diceRollingTimeoutId !== null) {
+      window.clearTimeout(this.diceRollingTimeoutId);
+      this.diceRollingTimeoutId = null;
+    }
+  }
+
   ngOnDestroy(): void {
     this.stopGeometryInteraction();
+    this.clearAllTokenAnimationTimeouts();
+    this.clearDiceRollingTimeout();
   }
 
   async refreshState(): Promise<void> {
@@ -101,11 +259,13 @@ export class GamePage implements OnDestroy {
 
     try {
       const state = await this.game.getState();
+      this.gameState.set(state.game ?? null);
       this.turnSeat.set(state.game.turn_seat_index ?? 0);
       this.hasGameStarted.set(!!state.game.last_roll_at);
       this.yourSeat.set(state.you?.seat_index ?? null);
       this.players.set(state.players ?? []);
       this.properties.set(state.properties ?? []);
+      this.syncAnimatedTokenTiles(state.players ?? []);
       this.actionLog.set([]);
       if (this.wsStatus() === 'disconnected') {
         this.connect();
@@ -149,7 +309,14 @@ export class GamePage implements OnDestroy {
   }
 
   roll(): void {
+    const blockedReason = this.rollBlockedReason();
+    if (blockedReason) {
+      this.showWarning(blockedReason);
+      return;
+    }
+
     this.ensureAudioContext();
+    this.startDiceRollingAnimation();
     this.ws.send({ type: 'roll_dice' });
   }
 
@@ -158,6 +325,12 @@ export class GamePage implements OnDestroy {
   }
 
   claimFirstTurn(): void {
+    const blockedReason = this.claimFirstTurnBlockedReason();
+    if (blockedReason) {
+      this.showWarning(blockedReason);
+      return;
+    }
+
     this.ensureAudioContext();
     this.ws.send({ type: 'claim_first_turn' });
   }
@@ -168,6 +341,12 @@ export class GamePage implements OnDestroy {
   }
 
   buy(): void {
+    const blockedReason = this.buyBlockedReason();
+    if (blockedReason) {
+      this.showWarning(blockedReason);
+      return;
+    }
+
     this.ensureAudioContext();
     this.ws.send({ type: 'buy_property' });
   }
@@ -257,6 +436,7 @@ export class GamePage implements OnDestroy {
     const geometry = this.tileGeometry(tileIndex);
     this.activeGeometryInteraction = {
       mode,
+      pointerId: event.pointerId,
       startClientX: event.clientX,
       startClientY: event.clientY,
       startGeometry: { ...geometry },
@@ -268,14 +448,99 @@ export class GamePage implements OnDestroy {
   }
 
   endTurn(): void {
+    const blockedReason = this.endTurnBlockedReason();
+    if (blockedReason) {
+      this.showWarning(blockedReason);
+      return;
+    }
+
     this.ensureAudioContext();
     this.ws.send({ type: 'end_turn' });
+  }
+
+  attemptJailRoll(): void {
+    const blockedReason = this.jailRollBlockedReason();
+    if (blockedReason) {
+      this.showWarning(blockedReason);
+      return;
+    }
+
+    this.ensureAudioContext();
+    this.ws.send({ type: 'attempt_jail_roll' });
+  }
+
+  payJailFine(): void {
+    const blockedReason = this.jailActionBlockedReason();
+    if (blockedReason) {
+      this.showWarning(blockedReason);
+      return;
+    }
+
+    this.ensureAudioContext();
+    this.ws.send({ type: 'pay_jail_fine' });
+  }
+
+  useJailFreeCard(): void {
+    const blockedReason = this.useJailFreeCardBlockedReason();
+    if (blockedReason) {
+      this.showWarning(blockedReason);
+      return;
+    }
+
+    this.ensureAudioContext();
+    this.ws.send({ type: 'use_jail_free_card' });
+  }
+
+  closeFinalDialog(): void {
+    this.finalDialogDismissed.set(true);
+  }
+
+  openMortgageDialog(card: PropertyCardVm): void {
+    if (card.ownerSeat !== this.yourSeat()) {
+      return;
+    }
+
+    if (card.isMortgaged) {
+      this.mortgageDialogProperty.set(card);
+      return;
+    }
+
+    const blockedReason = this.mortgageBlockedReason(card);
+    if (blockedReason) {
+      this.showWarning(blockedReason);
+      return;
+    }
+
+    this.ensureAudioContext();
+    this.ws.send({ type: 'mortgage_property', tile_index: card.tileIndex });
+  }
+
+  closeMortgageDialog(): void {
+    this.mortgageDialogProperty.set(null);
+  }
+
+  confirmUnmortgage(): void {
+    const card = this.mortgageDialogProperty();
+    if (!card) {
+      return;
+    }
+
+    const blockedReason = this.unmortgageBlockedReason(card);
+    if (blockedReason) {
+      this.showWarning(blockedReason);
+      return;
+    }
+
+    this.ensureAudioContext();
+    this.ws.send({ type: 'unmortgage_property', tile_index: card.tileIndex });
+    this.mortgageDialogProperty.set(null);
   }
 
   private onEvent(ev: GameWsEvent): void {
     if (ev.type === 'dice_rolled') {
       this.dice1.set(ev.d1);
       this.dice2.set(ev.d2);
+      this.startDiceRollingAnimation();
       this.hasGameStarted.set(true);
       const playerName = this.playerNameForSeat(ev.seat_index);
       this.recordActivity({ type: 'dice_rolled', playerName, d1: ev.d1, d2: ev.d2 });
@@ -291,11 +556,21 @@ export class GamePage implements OnDestroy {
     }
 
     if (ev.type === 'state_snapshot') {
+      this.gameState.set(ev.game ?? null);
+      this.finalDialogDismissed.set(false);
       this.turnSeat.set(ev.game.turn_seat_index ?? 0);
       this.hasGameStarted.set(!!ev.game.last_roll_at);
       this.players.set(ev.players ?? []);
       this.properties.set(ev.properties ?? []);
+      this.syncAnimatedTokenTiles(ev.players ?? []);
       this.recordActivity({ type: 'connected' });
+    }
+
+    if (ev.type === 'game_updated') {
+      this.gameState.set(ev.game ?? null);
+      if (ev.game?.status === 'finished') {
+        this.finalDialogDismissed.set(false);
+      }
     }
 
     if (ev.type === 'players_updated') {
@@ -321,12 +596,20 @@ export class GamePage implements OnDestroy {
         }
       }
       this.recordActivities(this.capturePlayerChanges(this.players(), ev.players ?? []));
+      this.animatePlayersToPositions(this.players(), nextPlayers);
       this.players.set(nextPlayers);
     }
 
     if (ev.type === 'properties_updated') {
       this.recordActivities(this.capturePropertyChanges(this.properties(), ev.properties ?? []));
       this.properties.set(ev.properties ?? []);
+      const activeDialog = this.mortgageDialogProperty();
+      if (activeDialog) {
+        const refreshedCard = this.myCards().find((card) => card.tileIndex === activeDialog.tileIndex) ?? null;
+        if (!refreshedCard?.isMortgaged) {
+          this.mortgageDialogProperty.set(null);
+        }
+      }
     }
 
     if (ev.type === 'special_card_drawn') {
@@ -348,6 +631,7 @@ export class GamePage implements OnDestroy {
     if (ev.type === 'error') {
       this.specialCardActionPending.set(false);
       this.error.set(ev.message);
+      this.showWarning(ev.message);
     }
   }
 
@@ -357,6 +641,32 @@ export class GamePage implements OnDestroy {
 
   playerTokenPoint(tileIndex: number): { leftPct: number; topPct: number } {
     return this.tilePoint(tileIndex);
+  }
+
+  tokenVms(): TokenVm[] {
+    const players = this.visiblePlayers();
+    const groups = new Map<number, TokenVm[]>();
+
+    for (const player of players) {
+      const animatedTileIndex = this.animatedTokenTileIndex(player);
+      const currentPoint = this.playerTokenPoint(animatedTileIndex);
+      const tokenVm: TokenVm = {
+        animatedTileIndex,
+        color: this.seatColor(player.seat_index),
+        isOwn: this.isOwnSeat(player.seat_index),
+        label: this.playerChipLabel(player),
+        leftPct: currentPoint.leftPct,
+        player,
+        topPct: currentPoint.topPct,
+      };
+      const existing = groups.get(animatedTileIndex) ?? [];
+      existing.push(tokenVm);
+      groups.set(animatedTileIndex, existing);
+    }
+
+    return Array.from(groups.values()).flatMap((group) =>
+      group.map((token, index) => this.withTokenStackOffset(token, index, group.length))
+    );
   }
 
   boardTransform(): string {
@@ -406,6 +716,10 @@ export class GamePage implements OnDestroy {
   playerChipTitle(player: { username?: string | null; seat_index: number; position_index: number }): string {
     const displayName = player.username?.trim() || `${this.i18n.t('seat')} ${player.seat_index}`;
     return `${displayName} (${this.i18n.t('seat')} ${player.seat_index}, ${this.i18n.t('tile')} ${player.position_index})`;
+  }
+
+  trackToken(_: number, token: TokenVm): number {
+    return token.player.seat_index;
   }
 
   currentPlayerColor(): string {
@@ -557,6 +871,141 @@ export class GamePage implements OnDestroy {
     return this.isYourTurn() ? this.i18n.t('your_turn') : this.i18n.t('other_users_turn');
   }
 
+  hasStoredJailFreeCard(): boolean {
+    const me = this.yourPlayer();
+    return !!me && (Number(me.chance_jail_free_cards ?? 0) + Number(me.community_chest_jail_free_cards ?? 0)) > 0;
+  }
+
+  storedJailFreeCardCount(): number {
+    const me = this.yourPlayer();
+    return Number(me?.chance_jail_free_cards ?? 0) + Number(me?.community_chest_jail_free_cards ?? 0);
+  }
+
+  canUseJailFreeCardNow(): boolean {
+    const me = this.yourPlayer();
+    return !!me && !!me.in_jail && this.isYourTurn() && this.hasStoredJailFreeCard() && !me.is_bankrupt;
+  }
+
+  colorSets(): ColorSetVm[] {
+    const me = this.yourPlayer();
+    if (!me) {
+      return [];
+    }
+
+    const ownedTiles = new Set(
+      this.properties()
+        .filter((property) => property.owner_seat_index === me.seat_index)
+        .map((property) => Number(property.tile_index))
+        .filter((tileIndex) => !Number.isNaN(tileIndex))
+    );
+
+    const groups = Array.from(
+      new Set(
+        Array.from(ownedTiles)
+          .map((tileIndex) => getTileColorGroup(tileIndex))
+          .filter((group): group is PropertyColorGroup => group !== null)
+      )
+    );
+
+    return groups
+      .map((group) => {
+        const tiles = getColorGroupTiles(group);
+        const ownedCount = tiles.filter((tileIndex) => ownedTiles.has(tileIndex)).length;
+        return {
+          colorGroup: group,
+          colorHex: this.colorSetHex(group),
+          isComplete: ownedCount === tiles.length,
+          ownedCount,
+          requiredCount: tiles.length,
+          tileNames: tiles.map((tileIndex) => getTileDefinition(tileIndex).name)
+        };
+      })
+      .sort((a, b) => {
+        if (a.isComplete !== b.isComplete) {
+          return a.isComplete ? -1 : 1;
+        }
+        return a.tileNames[0]?.localeCompare(b.tileNames[0] ?? '') ?? 0;
+      });
+  }
+
+  colorSetStatusLabel(colorSet: ColorSetVm): string {
+    return colorSet.isComplete ? this.i18n.t('complete_set') : this.i18n.t('incomplete_set');
+  }
+
+  mortgageCards(): PropertyCardVm[] {
+    return this.myCards()
+      .filter((card) => card.mortgageValue !== null)
+      .sort((a, b) => {
+        if (a.isMortgaged !== b.isMortgaged) {
+          return a.isMortgaged ? -1 : 1;
+        }
+        return a.tileIndex - b.tileIndex;
+      });
+  }
+
+  levelLabel(level: number): string {
+    if (level <= 0) {
+      return this.i18n.t('base_level');
+    }
+    if (level >= 5) {
+      return this.i18n.t('hotel_level');
+    }
+    return `${level}`;
+  }
+
+  mortgageCardTooltip(card: PropertyCardVm): string {
+    const lines = [
+      card.title,
+      `${this.i18n.t('level_label')}: ${this.levelLabel(card.level)}`,
+      `${this.i18n.t('rent')}: ${card.rent ?? '-'}`,
+      `${this.i18n.t('building_cost')}: ${card.buildingCost ?? '-'}`,
+      `${this.i18n.t('mortgage_value')}: ${card.mortgageValue ?? '-'}`,
+      `${this.i18n.t('unmortgage_cost')}: ${card.unmortgageCost ?? '-'}`
+    ];
+    if (card.isMortgaged) {
+      lines.push(this.i18n.t('mortgaged'));
+    }
+    return lines.join('\n');
+  }
+
+  mortgageDialogOpen(): boolean {
+    return this.mortgageDialogProperty() !== null;
+  }
+
+  mortgageDialogTitle(): string {
+    return this.i18n.t('confirm_unmortgage_title');
+  }
+
+  mortgageDialogInstruction(): string {
+    const card = this.mortgageDialogProperty();
+    if (!card) {
+      return this.i18n.t('confirm_unmortgage_message');
+    }
+    return `${card.title}. ${this.i18n.t('confirm_unmortgage_message')}`;
+  }
+
+  finalDialogOpen(): boolean {
+    const game = this.gameState();
+    const me = this.yourPlayer();
+    if (!game || !me || this.finalDialogDismissed()) {
+      return false;
+    }
+
+    return game.status === 'finished' && (!!me.is_bankrupt || game.winner_seat_index === me.seat_index);
+  }
+
+  finalDialogTitle(): string {
+    const me = this.yourPlayer();
+    const game = this.gameState();
+    return game?.winner_seat_index === me?.seat_index ? this.i18n.t('game_won_title') : this.i18n.t('game_lost_title');
+  }
+
+  finalDialogInstruction(): string {
+    const me = this.yourPlayer();
+    const game = this.gameState();
+    return game?.winner_seat_index === me?.seat_index ? this.i18n.t('game_won_message') : this.i18n.t('game_lost_message');
+  }
+
   turnStatusOwnerLabel(): string {
     const seat = this.turnSeat();
     const playerName = this.turnPlayerName();
@@ -585,6 +1034,27 @@ export class GamePage implements OnDestroy {
 
   statusTileLabel(tileIndex: number | null | undefined): string {
     return this.currentTileName(tileIndex);
+  }
+
+  private colorSetHex(colorGroup: PropertyColorGroup): string {
+    switch (colorGroup) {
+      case 'brown':
+        return '#8b5a2b';
+      case 'light_blue':
+        return '#74c7ec';
+      case 'pink':
+        return '#d96bb4';
+      case 'orange':
+        return '#f59f45';
+      case 'red':
+        return '#dd4b39';
+      case 'yellow':
+        return '#e0be2f';
+      case 'green':
+        return '#34a853';
+      case 'dark_blue':
+        return '#2d5bd1';
+    }
   }
 
   private playerNameForSeat(seat: number): string {
@@ -626,6 +1096,15 @@ export class GamePage implements OnDestroy {
     }
 
     this.playEventSounds(events);
+  }
+
+  private showWarning(message: string): void {
+    this.snackBar.open(message, undefined, {
+      duration: 3200,
+      panelClass: ['game-warning-snackbar'],
+      horizontalPosition: 'end',
+      verticalPosition: 'bottom'
+    });
   }
 
   private snackbarForEvent(event: ActivityEvent): { message: string } | null {
@@ -845,30 +1324,30 @@ export class GamePage implements OnDestroy {
     const now = context.currentTime + 0.01;
     if (kind === 'gain') {
       [784, 1046.5, 1318.51, 1567.98].forEach((frequency, index) => {
-        this.scheduleTone(context, now + index * 0.045, frequency, 0.18, 'sine', 0.05);
+        this.scheduleTone(context, now + index * 0.045, frequency, 0.18, 'sine', 0.075);
       });
       [523.25, 659.25, 783.99].forEach((frequency, index) => {
-        this.scheduleTone(context, now + 0.02 + index * 0.06, frequency, 0.22, 'triangle', 0.022);
+        this.scheduleTone(context, now + 0.02 + index * 0.06, frequency, 0.22, 'triangle', 0.034);
       });
       return;
     }
 
     if (kind === 'purchase') {
       [261.63, 329.63, 392, 523.25].forEach((frequency, index) => {
-        this.scheduleTone(context, now + index * 0.06, frequency, 0.18, 'triangle', 0.048);
+        this.scheduleTone(context, now + index * 0.06, frequency, 0.18, 'triangle', 0.07);
       });
       return;
     }
 
     if (kind === 'rent_loss') {
       [329.63, 277.18, 220].forEach((frequency, index) => {
-        this.scheduleTone(context, now + index * 0.07, frequency, 0.18, 'sawtooth', 0.05);
+        this.scheduleTone(context, now + index * 0.07, frequency, 0.18, 'sawtooth', 0.074);
       });
       return;
     }
 
     [349.23, 293.66].forEach((frequency, index) => {
-      this.scheduleTone(context, now + index * 0.08, frequency, 0.14, 'triangle', 0.045);
+      this.scheduleTone(context, now + index * 0.08, frequency, 0.14, 'triangle', 0.066);
     });
   }
 
@@ -880,7 +1359,7 @@ export class GamePage implements OnDestroy {
 
     const now = context.currentTime + 0.01;
     [392, 523.25, 659.25].forEach((frequency, index) => {
-      this.scheduleTone(context, now + index * 0.07, frequency, 0.13, 'sine', 0.065);
+      this.scheduleTone(context, now + index * 0.07, frequency, 0.13, 'sine', 0.095);
     });
   }
 
@@ -930,6 +1409,16 @@ export class GamePage implements OnDestroy {
           tileName: tile.name
         });
       }
+
+      if (Number(previousProperty.level ?? 0) !== Number(nextProperty.level ?? 0)) {
+        const tile = getTileDefinition(nextProperty.tile_index);
+        events.push({
+          type: 'property_bought',
+          ownerSeat: nextProperty.owner_seat_index,
+          tileIndex: nextProperty.tile_index,
+          tileName: tile.name
+        });
+      }
     }
 
     return events;
@@ -961,13 +1450,85 @@ export class GamePage implements OnDestroy {
     if (tile === null || tile === undefined) return false;
     const prop = this.properties().find((p) => p.tile_index === tile) ?? null;
     if (!prop) return true;
-    return prop.owner_seat_index === null || prop.owner_seat_index === undefined;
+    if (prop.owner_seat_index === null || prop.owner_seat_index === undefined) {
+      return true;
+    }
+
+    return prop.owner_seat_index === me.seat_index;
   }
 
   canClaimFirstTurn(): boolean {
     if (!this.connected()) return false;
     if (this.hasGameStarted()) return false;
     return this.yourSeat() !== null;
+  }
+
+  private rollBlockedReason(): string | null {
+    const me = this.yourPlayer();
+    if (!this.connected()) return this.i18n.t('need_connection_first');
+    if (!me) return this.i18n.t('need_connection_first');
+    if (me.is_bankrupt) return this.i18n.t('you_are_out_of_game');
+    if (this.gameState()?.status === 'finished') return this.i18n.t('game_finished');
+    if (!this.isYourTurn()) return this.i18n.t('wait_for_your_turn');
+    if (me.pending_event_kind) return 'Resolve the board event first';
+    if (me.in_jail) return this.i18n.t('choose_jail_action');
+    return null;
+  }
+
+  private endTurnBlockedReason(): string | null {
+    const me = this.yourPlayer();
+    if (!this.connected()) return this.i18n.t('need_connection_first');
+    if (!me) return this.i18n.t('need_connection_first');
+    if (me.is_bankrupt) return this.i18n.t('you_are_out_of_game');
+    if (this.gameState()?.status === 'finished') return this.i18n.t('game_finished');
+    if (!this.isYourTurn()) return this.i18n.t('wait_for_your_turn');
+    if (me.pending_event_kind) return 'Resolve the board event first';
+    if (me.in_jail) return this.i18n.t('choose_jail_action');
+    if (me.extra_turn_pending) return this.i18n.t('must_roll_again_after_double');
+    return null;
+  }
+
+  private buyBlockedReason(): string | null {
+    const me = this.yourPlayer();
+    if (!this.connected()) return this.i18n.t('need_connection_first');
+    if (!me) return this.i18n.t('need_connection_first');
+    if (me.is_bankrupt) return this.i18n.t('you_are_out_of_game');
+    if (this.gameState()?.status === 'finished') return this.i18n.t('game_finished');
+    if (!this.isYourTurn()) return this.i18n.t('wait_for_your_turn');
+    if (!this.canBuy()) return this.i18n.t('need_buyable_tile');
+    return null;
+  }
+
+  private claimFirstTurnBlockedReason(): string | null {
+    const me = this.yourPlayer();
+    if (!this.connected()) return this.i18n.t('need_connection_first');
+    if (!me) return this.i18n.t('need_connection_first');
+    if (me.is_bankrupt) return this.i18n.t('you_are_out_of_game');
+    if (this.hasGameStarted()) return this.i18n.t('first_turn_already_locked');
+    return null;
+  }
+
+  private jailActionBlockedReason(): string | null {
+    const me = this.yourPlayer();
+    if (!this.connected()) return this.i18n.t('need_connection_first');
+    if (!me) return this.i18n.t('need_connection_first');
+    if (me.is_bankrupt) return this.i18n.t('you_are_out_of_game');
+    if (this.gameState()?.status === 'finished') return this.i18n.t('game_finished');
+    if (!this.isYourTurn()) return this.i18n.t('wait_for_your_turn');
+    if (!me.in_jail) return this.i18n.t('not_in_jail');
+    if (me.pending_event_kind) return 'Resolve the board event first';
+    return null;
+  }
+
+  private jailRollBlockedReason(): string | null {
+    return this.jailActionBlockedReason();
+  }
+
+  private useJailFreeCardBlockedReason(): string | null {
+    const jailActionBlock = this.jailActionBlockedReason();
+    if (jailActionBlock) return jailActionBlock;
+    if (!this.hasStoredJailFreeCard()) return this.i18n.t('no_jail_free_card');
+    return null;
   }
 
   pendingTileInfo(): any | null {
@@ -981,6 +1542,8 @@ export class GamePage implements OnDestroy {
         owner_seat_index: null,
         purchase_price: null,
         base_rent: null,
+        level: 0,
+        is_mortgaged: false,
       }
     );
   }
@@ -996,13 +1559,17 @@ export class GamePage implements OnDestroy {
         const ownerSeat = property.owner_seat_index as number;
         const tile = getTileDefinition(property.tile_index);
         const position = this.ownerPropertyMarkerPoint(property.tile_index);
+        const level = Number(property.level ?? 0);
+        const isStreet = tile.kind === 'property' && isUpgradableStreet(property.tile_index);
         return {
           tileIndex: property.tile_index,
           ownerSeat,
           leftPct: position.leftPct,
           topPct: position.topPct,
           color: this.seatColor(ownerSeat),
-          title: `${this.playerNameForSeat(ownerSeat)} ${this.i18n.t('owns_suffix')} ${tile.name}`
+          title: `${this.playerNameForSeat(ownerSeat)} ${this.i18n.t('owns_suffix')} ${tile.name}`,
+          label: isStreet ? `${level}` : `${ownerSeat}`,
+          isMortgaged: Boolean(property.is_mortgaged)
         };
       });
   }
@@ -1063,6 +1630,17 @@ export class GamePage implements OnDestroy {
         const owner = this.players().find((player) => player.seat_index === ownerSeat);
         const tile = getTileDefinition(property.tile_index);
         const bandColor = this.isSpecialOwnedCard(tile.kind) ? null : this.propertyBandColor(property.tile_index, ownerSeat);
+        const isStreet = tile.kind === 'property' && isUpgradableStreet(property.tile_index);
+        const level = Number(property.level ?? 0);
+        const isMortgaged = Boolean(property.is_mortgaged);
+        const colorSetComplete = isStreet ? this.isColorSetCompleteForOwner(property.tile_index, ownerSeat) : false;
+        const rent = isMortgaged
+          ? 0
+          : isStreet
+            ? getStreetRent(property.tile_index, level, colorSetComplete)
+            : property.base_rent;
+        const estate = isStreet ? getStreetEstate(property.tile_index) : null;
+        const mortgageValue = isStreet ? estate?.mortgageValue ?? null : Math.trunc(Number(property.purchase_price ?? 0) / 2);
         return {
           frameColor: this.propertyFrameColor(property.tile_index, tile.kind),
           headerLabel: this.propertyHeaderLabel(tile.kind),
@@ -1073,12 +1651,52 @@ export class GamePage implements OnDestroy {
           ownerSeat,
           ownerName: owner?.username ? `${owner.username} (${this.i18n.t('seat')} ${ownerSeat})` : `${this.i18n.t('seat')} ${ownerSeat}`,
           price: property.purchase_price,
-          rent: property.base_rent,
+          rent,
           bandColor,
           rentLabel: this.propertyRentLabel(tile.kind),
+          level,
+          isMortgaged,
+          buildingCost: estate?.buildingCost ?? null,
+          mortgageValue,
+          unmortgageCost: mortgageValue === null ? null : Math.ceil(mortgageValue * 1.1),
+          nextUpgradeCost: isStreet && level < 5 && !isMortgaged ? estate?.buildingCost ?? null : null,
+          isUpgradableStreet: isStreet,
         };
       })
       .sort((a, b) => cardSortRank(a.kind) - cardSortRank(b.kind) || a.tileIndex - b.tileIndex);
+  }
+
+  private isColorSetCompleteForOwner(tileIndex: number, ownerSeat: number): boolean {
+    const colorGroup = getTileColorGroup(tileIndex);
+    if (!colorGroup) {
+      return false;
+    }
+    const requiredTiles = getColorGroupTiles(colorGroup);
+    return requiredTiles.every((requiredTileIndex) => {
+      const property = this.properties().find((item) => item.tile_index === requiredTileIndex);
+      return property?.owner_seat_index === ownerSeat;
+    });
+  }
+
+  private mortgageBlockedReason(card: PropertyCardVm): string | null {
+    if (!this.connected()) return this.i18n.t('need_connection_first');
+    if (!this.isYourTurn()) return this.i18n.t('wait_for_your_turn');
+    if (this.gameState()?.status === 'finished') return this.i18n.t('game_finished');
+    if (card.isMortgaged) return null;
+    if (card.mortgageValue === null) return this.i18n.t('no_mortgage_cards');
+    if (card.isUpgradableStreet && card.level > 0) return 'Sell upgrades before mortgaging this property';
+    return null;
+  }
+
+  private unmortgageBlockedReason(card: PropertyCardVm): string | null {
+    if (!this.connected()) return this.i18n.t('need_connection_first');
+    if (!this.isYourTurn()) return this.i18n.t('wait_for_your_turn');
+    if (this.gameState()?.status === 'finished') return this.i18n.t('game_finished');
+    if (!card.isMortgaged) return 'Property is not mortgaged';
+    const me = this.yourPlayer();
+    if (!me) return this.i18n.t('need_connection_first');
+    if ((card.unmortgageCost ?? 0) > Number(me.money ?? 0)) return 'Not enough money';
+    return null;
   }
 
   private buildCardSlots(cards: PropertyCardVm[], minimumSlots = 15): Array<PropertyCardVm | null> {
@@ -1288,7 +1906,7 @@ export class GamePage implements OnDestroy {
       return 'Рента';
     }
 
-    return 'Базовая рента';
+    return 'Рента';
   }
 
   private propertyFrameColor(tileIndex: number, kind: TileKind): string {
@@ -1301,17 +1919,24 @@ export class GamePage implements OnDestroy {
 }
 
 type PropertyCardVm = {
+  bandColor: string | null;
+  buildingCost: number | null;
   frameColor: string;
   headerLabel: string;
+  isMortgaged: boolean;
+  isUpgradableStreet: boolean;
   kind: TileKind;
   kindLabel: string | null;
+  level: number;
+  mortgageValue: number | null;
+  nextUpgradeCost: number | null;
   tileIndex: number;
   title: string;
+  unmortgageCost: number | null;
   ownerSeat: number;
   ownerName: string;
   price: number | null;
   rent: number | null;
-  bandColor: string | null;
   rentLabel: string;
 };
 
@@ -1319,6 +1944,16 @@ type OpponentCardGroupVm = {
   ownerSeat: number;
   slots: Array<PropertyCardVm | null>;
   title: string;
+};
+
+type TokenVm = {
+  animatedTileIndex: number;
+  color: string;
+  isOwn: boolean;
+  label: string;
+  leftPct: number;
+  player: any;
+  topPct: number;
 };
 
 type SpecialCardVm = SpecialCardPayload & {
@@ -1343,13 +1978,25 @@ type GeometryInteractionMode = 'move' | 'resize-nw' | 'resize-ne' | 'resize-sw' 
 
 type GeometryInteractionState = {
   mode: GeometryInteractionMode;
+  pointerId: number;
   startClientX: number;
   startClientY: number;
   startGeometry: TileGeometry;
   tileIndex: number;
 };
 
+type ColorSetVm = {
+  colorGroup: PropertyColorGroup;
+  colorHex: string;
+  isComplete: boolean;
+  ownedCount: number;
+  requiredCount: number;
+  tileNames: string[];
+};
+
 type PropertyOwnerMarkerVm = {
+  isMortgaged: boolean;
+  label: string;
   tileIndex: number;
   ownerSeat: number;
   leftPct: number;

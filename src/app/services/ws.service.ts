@@ -5,6 +5,7 @@ import { SpecialCardPayload } from './board-tiles';
 
 export type GameWsEvent =
   | { type: 'state_snapshot'; game: any; players: any[]; properties?: any[] }
+  | { type: 'game_updated'; game: any; state_version: number }
   | { type: 'dice_rolled'; seat_index: number; d1: number; d2: number; state_version: number }
   | { type: 'players_updated'; players: any[]; state_version: number }
   | { type: 'properties_updated'; properties: any[]; state_version: number }

@@ -8,6 +8,7 @@ from django.utils import timezone
 class Game(models.Model):
     status = models.CharField(max_length=32, default="lobby")
     turn_seat_index = models.PositiveSmallIntegerField(default=0)
+    winner_seat_index = models.PositiveSmallIntegerField(null=True, blank=True)
     state_version = models.PositiveIntegerField(default=0)
     last_dice_1 = models.PositiveSmallIntegerField(null=True, blank=True)
     last_dice_2 = models.PositiveSmallIntegerField(null=True, blank=True)
@@ -22,6 +23,7 @@ class Game(models.Model):
             "id": self.id,
             "status": self.status,
             "turn_seat_index": self.turn_seat_index,
+            "winner_seat_index": self.winner_seat_index,
             "state_version": self.state_version,
             "last_dice_1": self.last_dice_1,
             "last_dice_2": self.last_dice_2,
@@ -51,6 +53,7 @@ class PlayerState(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     seat_index = models.PositiveSmallIntegerField()
     connection_count = models.PositiveSmallIntegerField(default=0)
+    is_bankrupt = models.BooleanField(default=False)
     money = models.IntegerField(default=1500)
     position_index = models.PositiveSmallIntegerField(default=0)
     pending_buy_tile_index = models.PositiveSmallIntegerField(null=True, blank=True)
@@ -59,6 +62,8 @@ class PlayerState(models.Model):
     pending_event_card_id = models.CharField(max_length=64, null=True, blank=True)
     in_jail = models.BooleanField(default=False)
     jail_turns_left = models.PositiveSmallIntegerField(default=0)
+    extra_turn_pending = models.BooleanField(default=False)
+    consecutive_doubles = models.PositiveSmallIntegerField(default=0)
     chance_jail_free_cards = models.PositiveSmallIntegerField(default=0)
     community_chest_jail_free_cards = models.PositiveSmallIntegerField(default=0)
     created_at = models.DateTimeField(default=timezone.now)
@@ -77,6 +82,7 @@ class PlayerState(models.Model):
             "username": self.user.username,
             "seat_index": self.seat_index,
             "is_connected": bool(self.connection_count),
+            "is_bankrupt": self.is_bankrupt,
             "money": self.money,
             "position_index": self.position_index,
             "pending_buy_tile_index": self.pending_buy_tile_index,
@@ -85,6 +91,8 @@ class PlayerState(models.Model):
             "pending_event_card_id": self.pending_event_card_id,
             "in_jail": self.in_jail,
             "jail_turns_left": self.jail_turns_left,
+            "extra_turn_pending": self.extra_turn_pending,
+            "consecutive_doubles": self.consecutive_doubles,
             "chance_jail_free_cards": self.chance_jail_free_cards,
             "community_chest_jail_free_cards": self.community_chest_jail_free_cards,
         }
@@ -168,7 +176,7 @@ class PlayerState(models.Model):
                     return
 
                 inactive_seats = [player.seat_index for player in inactive_players]
-                PropertyState.objects.filter(game_id=game_id, owner_seat_index__in=inactive_seats).update(owner_seat_index=None)
+                PropertyState.objects.filter(game_id=game_id, owner_seat_index__in=inactive_seats).update(owner_seat_index=None, level=0, is_mortgaged=False)
                 cls.objects.filter(id__in=[player.id for player in inactive_players]).delete()
 
         await _cleanup()
@@ -180,6 +188,8 @@ class PropertyState(models.Model):
     owner_seat_index = models.PositiveSmallIntegerField(null=True, blank=True)
     purchase_price = models.PositiveIntegerField(default=100)
     base_rent = models.PositiveIntegerField(default=10)
+    level = models.PositiveSmallIntegerField(default=0)
+    is_mortgaged = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -195,4 +205,6 @@ class PropertyState(models.Model):
             "owner_seat_index": self.owner_seat_index,
             "purchase_price": self.purchase_price,
             "base_rent": self.base_rent,
+            "level": self.level,
+            "is_mortgaged": self.is_mortgaged,
         }

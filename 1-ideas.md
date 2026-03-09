@@ -1,1 +1,11 @@
-- [ ] add the following functionality: when user is hovering with mouse over center of the board, show in this center rotate semi-transparent rotate icon - it should be pretty big, clickable and should rotate the board 90 degrees clockwise on each click - so user will be able to run board for convinience
+- [x] add the following functionality: when user is hovering with mouse over center of the board, show in this center rotate semi-transparent rotate icon - it should be pretty big, clickable and should rotate the board 90 degrees clockwise on each click - so user will be able to run board for convinience
+- [x] Let's implement "color set" functionality. If player has all properties of the same color, opponents pay double rent. Reflect this in the aside panel
+- [x] Let's develop the game further and implement "houses and hotels" functionality. Check @web for rules. We will need to upgrade own-property markers appropriately - replace seats number on them on "property level" number - zero (0) will mean base property with no houses or hotels. User can get up property level by simply clicking same "Buy" button. Take houses and hotels rent from the @assets/cities images
+- [x] Implement "mortgage" functionality. Player can mortgage properties to get money, but he needs to pay 10% more to unmortgage them. Add section below "possibility chips" with "mortgage property cards". Use small rectangle icons with appropriate colors. All card info should be located in the tooltip. Pressing this icons will show dialog "unmorgage this property? yes/no" with following appropriate logic.
+- [x] If there is several players' chips on the same tile - handle chips overlapping to show them all.
+- [x] Animate dices
+- [ ] Also animate dices on the status bar (same your excellent animation)
+- [x] Animate players' chips movement. Movement should be pretty fast but noticable
+- [x] If user in the jail he still can make turn pressing "throw dices" button. Seems jail-skip-turn rule not applied. He should see snackbar "You in jail and skip turn" trying to press "throw dices" button in this case
+- [x] Make shackbars a little noticible, just a little. You decide which method to use
+- [x] Make money on the status-bar more notisable - bigger and with louder color since it is important information. 
