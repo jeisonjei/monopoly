@@ -10,3 +10,8 @@ a
 - [x] Make shackbars a little noticible, just a little. You decide which method to use
 - [x] Make money on the status-bar more notisable - bigger and with louder color since it is important information. 
 - [ ] When user on the tile with property buying which make color set complete he should be able to immediatelly increase property level not waiting for next turn. Also he should be able to buy as much levels as he can afford not waiting for next turn - in the current implementation he can buy one level per one turn
+- [x] Bug: ЛЕНИНГРАДСКАЯ ЖЕЛЕЗНАЯ ДОРОГА card can't be traded
+- [x] Bug: Игрок в тюрьме, но пробуя применить "выход из тюрьмы" игра пишет "вы не в тюрьме"
+- [x] Bug: Если игрок приходит в тюрьму и у него дубль, он не может остаться в тюрьме, так как программа не даёт завершить ход
+- [x] Bug: Сверхналог не 200 а 100
+- [ ] Feature: please implement auto turn end but make it optional (somehow, maybe through query request parameter)

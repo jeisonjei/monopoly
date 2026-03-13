@@ -114,6 +114,9 @@ export class GamePage implements OnDestroy {
   private readonly animatedTokenTiles = signal<Record<number, number>>({});
   private readonly tokenAnimationTimeouts = new Map<number, number[]>();
   private diceRollingTimeoutId: number | null = null;
+  private readonly autoEndTurnEnabled = this.readAutoEndTurnPreference();
+  private autoEndTurnArmed = false;
+  private autoEndTurnPending = false;
 
   constructor(
     public readonly auth: AuthService,
@@ -340,6 +343,7 @@ export class GamePage implements OnDestroy {
 
     this.ensureAudioContext();
     this.startDiceRollingAnimation();
+    this.autoEndTurnArmed = this.autoEndTurnEnabled;
     this.ws.send({ type: 'roll_dice' });
   }
 
@@ -371,6 +375,7 @@ export class GamePage implements OnDestroy {
     }
 
     this.ensureAudioContext();
+    this.autoEndTurnArmed = this.autoEndTurnEnabled;
     this.ws.send({ type: 'buy_property' });
   }
 
@@ -478,6 +483,8 @@ export class GamePage implements OnDestroy {
     }
 
     this.ensureAudioContext();
+    this.autoEndTurnArmed = false;
+    this.autoEndTurnPending = false;
     this.ws.send({ type: 'end_turn' });
   }
 
@@ -707,6 +714,7 @@ export class GamePage implements OnDestroy {
         this.playTurnSound();
       }
       this.recordActivity({ type: 'turn_changed', playerName, hasStarted: this.hasGameStarted() });
+      this.maybeAutoEndTurn();
     }
 
     if (ev.type === 'state_snapshot') {
@@ -719,6 +727,7 @@ export class GamePage implements OnDestroy {
       this.syncTradeOffers(ev.trade_offers ?? []);
       this.syncAnimatedTokenTiles(ev.players ?? []);
       this.recordActivity({ type: 'connected' });
+      this.maybeAutoEndTurn();
     }
 
     if (ev.type === 'game_updated') {
@@ -726,6 +735,7 @@ export class GamePage implements OnDestroy {
       if (ev.game?.status === 'finished') {
         this.finalDialogDismissed.set(false);
       }
+      this.maybeAutoEndTurn();
     }
 
     if (ev.type === 'players_updated') {
@@ -753,6 +763,7 @@ export class GamePage implements OnDestroy {
       this.recordActivities(this.capturePlayerChanges(this.players(), ev.players ?? []));
       this.animatePlayersToPositions(this.players(), nextPlayers);
       this.players.set(nextPlayers);
+      this.maybeAutoEndTurn();
     }
 
     if (ev.type === 'properties_updated') {
@@ -817,9 +828,51 @@ export class GamePage implements OnDestroy {
       this.outgoingTradeSubmitting.set(false);
       this.tradeDecisionPending.set(false);
       this.resolvingTradeTileIndex.set(null);
-      this.error.set(ev.message);
+      this.autoEndTurnPending = false;
       this.showWarning(ev.message);
     }
+  }
+
+  private readAutoEndTurnPreference(): boolean {
+    const value = new URLSearchParams(window.location.search).get('autoEndTurn');
+    if (value === null) {
+      return false;
+    }
+
+    const normalized = value.trim().toLowerCase();
+    return normalized === '' || normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+  }
+
+  private maybeAutoEndTurn(): void {
+    if (!this.autoEndTurnEnabled || !this.autoEndTurnArmed || this.autoEndTurnPending) {
+      return;
+    }
+
+    const me = this.yourPlayer();
+    if (!me) {
+      return;
+    }
+
+    if (!this.connected()) {
+      return;
+    }
+
+    if (this.gameState()?.status === 'finished') {
+      this.autoEndTurnArmed = false;
+      return;
+    }
+
+    if (!this.isYourTurn()) {
+      this.autoEndTurnArmed = false;
+      return;
+    }
+
+    if (me.is_bankrupt || me.pending_event_kind || this.isPlayerJailed(me) || me.extra_turn_pending || this.canBuy()) {
+      return;
+    }
+
+    this.autoEndTurnPending = true;
+    this.endTurn();
   }
 
   tilePoint(tileIndex: number): { leftPct: number; topPct: number } {
@@ -1026,6 +1079,7 @@ export class GamePage implements OnDestroy {
 
     this.ensureAudioContext();
     this.specialCardActionPending.set(true);
+    this.autoEndTurnArmed = this.autoEndTurnEnabled;
     this.ws.send({ type: 'resolve_board_event', tileIndex: card.tileIndex });
   }
 
@@ -1068,9 +1122,13 @@ export class GamePage implements OnDestroy {
     return Number(me?.chance_jail_free_cards ?? 0) + Number(me?.community_chest_jail_free_cards ?? 0);
   }
 
+  private isPlayerJailed(player: any | null): boolean {
+    return !!player && (!!player.in_jail || Number(player.jail_turns_left ?? 0) > 0);
+  }
+
   canUseJailFreeCardNow(): boolean {
     const me = this.yourPlayer();
-    return !!me && !!me.in_jail && this.isYourTurn() && this.hasStoredJailFreeCard() && !me.is_bankrupt;
+    return !!me && this.isPlayerJailed(me) && this.isYourTurn() && this.hasStoredJailFreeCard() && !me.is_bankrupt;
   }
 
   colorSets(): ColorSetVm[] {
@@ -1784,7 +1842,7 @@ export class GamePage implements OnDestroy {
     if (this.gameState()?.status === 'finished') return this.i18n.t('game_finished');
     if (!this.isYourTurn()) return this.i18n.t('wait_for_your_turn');
     if (me.pending_event_kind) return 'Resolve the board event first';
-    if (me.in_jail) return this.i18n.t('choose_jail_action');
+    if (this.isPlayerJailed(me)) return this.i18n.t('choose_jail_action');
     return null;
   }
 
@@ -1796,7 +1854,7 @@ export class GamePage implements OnDestroy {
     if (this.gameState()?.status === 'finished') return this.i18n.t('game_finished');
     if (!this.isYourTurn()) return this.i18n.t('wait_for_your_turn');
     if (me.pending_event_kind) return 'Resolve the board event first';
-    if (me.in_jail) return this.i18n.t('choose_jail_action');
+    if (this.isPlayerJailed(me)) return this.i18n.t('choose_jail_action');
     if (me.extra_turn_pending) return this.i18n.t('must_roll_again_after_double');
     return null;
   }
@@ -1828,7 +1886,7 @@ export class GamePage implements OnDestroy {
     if (me.is_bankrupt) return this.i18n.t('you_are_out_of_game');
     if (this.gameState()?.status === 'finished') return this.i18n.t('game_finished');
     if (!this.isYourTurn()) return this.i18n.t('wait_for_your_turn');
-    if (!me.in_jail) return this.i18n.t('not_in_jail');
+    if (!this.isPlayerJailed(me)) return this.i18n.t('not_in_jail');
     if (me.pending_event_kind) return 'Resolve the board event first';
     return null;
   }

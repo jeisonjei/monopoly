@@ -265,14 +265,15 @@ def create_special_card_payload(tile_index: int, card_id: str | None = None) -> 
     kind = tile["kind"]
 
     if kind == "tax":
+        tax_amount = 200 if int(tile_index) == 38 else 100
         return {
             "type": "special_card_drawn",
             "actionButtonLabel": "Pay tax",
             "cardKind": "tax",
             "tileIndex": tile_index,
             "title": tile["name"],
-            "instruction": "Заплатите $200 в банк.",
-            "action": {"kind": "money_delta", "value": -200},
+            "instruction": f"Заплатите ${tax_amount} в банк.",
+            "action": {"kind": "money_delta", "value": -tax_amount},
         }
 
     resolved_card_kind = kind if kind in CARD_DEFINITIONS else "chance"

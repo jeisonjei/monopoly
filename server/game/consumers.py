@@ -12,6 +12,9 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
     group_name = "game"
     board_size = 40
 
+    def _is_player_jailed(self, player: PlayerState) -> bool:
+        return bool(player.in_jail or int(player.jail_turns_left or 0) > 0)
+
     async def _owner_has_full_color_set(self, game_id: int, owner_seat_index: int, tile_index: int) -> bool:
         color_group = get_color_group(tile_index)
         if not color_group:
@@ -252,7 +255,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             return "Not enough money"
 
         tile = get_tile_definition(prop.tile_index)
-        if tile["kind"] not in {"property", "railroad", "utility"}:
+        if tile["kind"] not in {"property", "railroad", "utility", "special_property"}:
             return "This card cannot be traded"
 
         if prop.is_mortgaged:
@@ -635,7 +638,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             await self.send_json({"type": "error", "message": "Resolve the board event first"})
             return
 
-        if player.in_jail:
+        if self._is_player_jailed(player):
             await self.send_json({"type": "error", "message": "Choose a jail action first"})
             return
 
@@ -679,7 +682,15 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
         if player is None:
             return
 
-        player.extra_turn_pending = bool(is_double and not player.in_jail)
+        if self._is_player_jailed(player):
+            player.extra_turn_pending = False
+            player.consecutive_doubles = 0
+            await player.asave(update_fields=["extra_turn_pending", "consecutive_doubles"])
+            game = await self._advance_turn(game)
+            await self._handle_post_action_updates(game, broadcast_turn=True)
+            return
+
+        player.extra_turn_pending = bool(is_double and not self._is_player_jailed(player))
         if not is_double:
             player.consecutive_doubles = 0
         await player.asave(update_fields=["extra_turn_pending", "consecutive_doubles"])
@@ -713,7 +724,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             await self.send_json({"type": "error", "message": "Not your turn"})
             return
 
-        if not player.in_jail:
+        if not self._is_player_jailed(player):
             await self.send_json({"type": "error", "message": "You are not in jail"})
             return
 
@@ -788,7 +799,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             await self.send_json({"type": "error", "message": "Not your turn"})
             return
 
-        if not player.in_jail:
+        if not self._is_player_jailed(player):
             await self.send_json({"type": "error", "message": "You are not in jail"})
             return
 
@@ -819,7 +830,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             await self.send_json({"type": "error", "message": "Not your turn"})
             return
 
-        if not player.in_jail:
+        if not self._is_player_jailed(player):
             await self.send_json({"type": "error", "message": "You are not in jail"})
             return
 
@@ -938,6 +949,14 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
 
         game.state_version += 1
         await game.asave(update_fields=["state_version"])
+        if self._is_player_jailed(player):
+            player.extra_turn_pending = False
+            player.consecutive_doubles = 0
+            await player.asave(update_fields=["extra_turn_pending", "consecutive_doubles"])
+            game = await self._advance_turn(game)
+            await self._handle_post_action_updates(game, broadcast_turn=True)
+            return
+
         await self._handle_post_action_updates(game)
 
     async def _handle_propose_property_trade(self, content: dict):
@@ -1369,7 +1388,7 @@ class GameConsumer(AsyncJsonWebsocketConsumer):
             await self.send_json({"type": "error", "message": "Resolve the board event first"})
             return
 
-        if player.in_jail:
+        if self._is_player_jailed(player):
             await self.send_json({"type": "error", "message": "Choose a jail action first"})
             return
 
